@@ -1,0 +1,38 @@
+[package]
+name = "aetherpose"
+version = "0.1.0"
+edition = "2021"
+default-run = "aetherpose"
+
+[dependencies]
+# 非同步執行環境 (核心)
+tokio = { version = "1.0", features = ["full"] }
+
+# 數學運算 (Quaternion, Vector)
+nalgebra = "0.32"
+
+# 序列化與反序列化 (處理 JSON 設定檔或封包)
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# OSC 通訊 (輸出到 VRChat/Unity)
+rosc = "0.10"
+
+# 錯誤處理
+anyhow = "1.0"
+
+# Log 系統
+log = "0.4"
+env_logger = "0.10"
+
+# 時間處理
+chrono = "0.4"
+
+# GUI 介面框架
+eframe = "0.29"
+serialport = "4.8.1"
+btleplug = "0.11"
+futures = "0.3"
+uuid = { version = "1.20.0", features = ["v4"] }
+crossbeam-channel = "0.5"
+flate2 = "1.0"
