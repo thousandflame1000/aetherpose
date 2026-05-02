@@ -63,6 +63,7 @@
   "tracker.connection.udp": "📡 UDP",
   "tracker.unassigned": "未分配",
 
+  "monitor.scroll_hint": "💡 提示：欄位過多時可左右橫移捲動",
   "monitor.waiting_connection": "等待連線...",
   "shake_assign.instruction": "點擊下方按鈕後，搖晃對應的 Tracker 即可完成分配。",
   "shake_assign.waiting": "👋 搖晃中...",

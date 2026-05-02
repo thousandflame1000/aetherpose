@@ -22,8 +22,8 @@ fn test_process_with_authoritative_head() {
     let mut found_pos = false;
     for g in goals {
         match g {
-            Goal::Rotation { bone_id, .. } if bone_id == 4 => found_rot = true,
-            Goal::Position { bone_id, .. } if bone_id == 4 => found_pos = true,
+            Goal::Rotation { bone_id: 4, .. } => found_rot = true,
+            Goal::Position { bone_id: 4, .. } => found_pos = true,
             _ => {}
         }
     }
@@ -73,6 +73,16 @@ fn test_zupt_params_and_stationary_query() {
     // change params and ensure call still works
     fusion.set_zupt_params(4, 10.0, 1.0);
     let stationary = fusion.is_tracker_stationary(12, accel, None);
-    // stationary is a bool; we assert the call completes
-    assert!(stationary == true || stationary == false);
+    // ensure return type is bool and the call completed
+    let _stationary_val: bool = stationary;
+}
+
+#[test]
+fn test_zupt_disable_forces_non_stationary() {
+    let mut fusion = FusionEngine::new();
+    fusion.set_zupt_enabled(false);
+
+    for _ in 0..10 {
+        assert!(!fusion.is_tracker_stationary(12, [0.0, 1.0, 0.0], None));
+    }
 }

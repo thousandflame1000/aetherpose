@@ -124,11 +124,12 @@ pub async fn run_ble_manager(
     tx: Sender<(PacketData, ConnectionType)>,
     stats: Arc<BackpressStats>,
     status_tx: Option<tokio::sync::mpsc::UnboundedSender<String>>,
+    sync_quats: crate::net::ble::SyncQuatMap,
 ) {
     let mut attempt: u32 = 0;
     loop {
         log::info!("Starting BLE client (attempt {})", attempt + 1);
-        crate::net::ble::run_ble_client(tx.clone(), stats.clone(), status_tx.clone()).await;
+        crate::net::ble::run_ble_client(tx.clone(), stats.clone(), status_tx.clone(), sync_quats.clone()).await;
         log::warn!("BLE client task ended, will restart");
         attempt = attempt.saturating_add(1);
         let delay_ms = backoff_delay_ms(attempt, 500, 10_000);

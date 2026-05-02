@@ -3,8 +3,7 @@
 use crate::skeleton::{bone::BoneId, model::SkeletonModel};
 use nalgebra::{UnitQuaternion, Vector3};
 
-/// Represents a single goal or constraint for the IK solver.
-/// Each goal contributes to the total energy function that the solver tries to minimize.
+/// Represents a single goal or regularization term understood by the IK solver.
 #[derive(Clone, Debug)]
 pub enum Goal {
     /// Pushes a bone's position towards a target position in global space.
@@ -21,19 +20,16 @@ pub enum Goal {
         target_rotation: UnitQuaternion<f32>,
         weight: f32,
     },
-    /// Pulls the entire skeleton's pose towards a reference "prior" pose.
-    /// Corresponds to the ||q - q_prior||^2 term.
+    /// Pulls the solved pose towards a reference pose after the main IK passes.
     PosePrior {
         pose: SkeletonModel, // The target pose (e.g., a T-pose)
         weight: f32,
     },
-    /// Penalizes joints for exceeding their natural limits.
-    /// Corresponds to the ||W_lim * phi(q)||^2 term.
+    /// Applies joint-limit clamping. The weight controls how aggressively the
+    /// solver blends toward the clamped pose.
     JointLimits { weight: f32 },
-    /// Penalizes large changes in joint angles between frames to ensure smoothness.
-    /// Corresponds to the ||q_t - q_{t-1}||^2 term.
+    /// Pulls the current solution toward the previous solved frame.
     TemporalSmoothness {
-        // q_{t-1} is fetched from the skeleton's previous state
         weight: f32,
     },
     // --- [新增] 極向量約束 ---

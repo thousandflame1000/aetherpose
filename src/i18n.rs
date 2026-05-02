@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use std::collections::HashMap;
 use std::fs;
@@ -15,28 +15,12 @@ impl I18n {
     pub fn load_dir(path: &str, default: &str) -> Self {
         let mut data = HashMap::new();
         let mut display_names: HashMap<String, String> = HashMap::new();
-        let p = Path::new(path);
-        if !p.exists() {
-            // try create the folder (no error if exists)
-            let _ = std::fs::create_dir_all(p);
-        }
-        if let Ok(entries) = std::fs::read_dir(path) {
-            for e in entries.flatten() {
-                if let Some(ext) = e.path().extension() {
-                    if ext == "json" {
-                        if let Some(fname) = e.path().file_stem().and_then(|s| s.to_str()) {
-                            if let Ok(text) = fs::read_to_string(e.path()) {
-                                if let Ok(map) = serde_json::from_str::<HashMap<String, String>>(&text) {
-                                        // check for a language display name key (optional)
-                                        if let Some(name) = map.get("__lang_name") {
-                                            display_names.insert(fname.to_string(), name.clone());
-                                        }
-                                        data.insert(fname.to_string(), map);
-                                }
-                            }
-                        }
-                    }
-                }
+        let candidate_dirs = candidate_i18n_dirs(path);
+
+        for dir in candidate_dirs {
+            load_lang_maps_from_dir(&dir, &mut data, &mut display_names);
+            if !data.is_empty() {
+                break;
             }
         }
         // ensure default exists
@@ -103,6 +87,57 @@ impl I18n {
             Ok(())
         } else {
             Err(std::io::Error::new(std::io::ErrorKind::NotFound, "lang not found"))
+        }
+    }
+}
+
+fn candidate_i18n_dirs(path: &str) -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    let direct = PathBuf::from(path);
+    dirs.push(direct.clone());
+
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(exe_dir) = exe.parent() {
+            dirs.push(exe_dir.join(path));
+        }
+    }
+
+    dirs.push(Path::new(env!("CARGO_MANIFEST_DIR")).join(path));
+
+    let mut deduped = Vec::new();
+    for dir in dirs {
+        if !deduped.iter().any(|existing: &PathBuf| existing == &dir) {
+            deduped.push(dir);
+        }
+    }
+    deduped
+}
+
+fn load_lang_maps_from_dir(
+    dir: &Path,
+    data: &mut HashMap<String, HashMap<String, String>>,
+    display_names: &mut HashMap<String, String>,
+) {
+    if !dir.exists() {
+        return;
+    }
+
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for e in entries.flatten() {
+            if let Some(ext) = e.path().extension() {
+                if ext == "json" {
+                    if let Some(fname) = e.path().file_stem().and_then(|s| s.to_str()) {
+                        if let Ok(text) = fs::read_to_string(e.path()) {
+                            if let Ok(map) = serde_json::from_str::<HashMap<String, String>>(&text) {
+                                if let Some(name) = map.get("__lang_name") {
+                                    display_names.insert(fname.to_string(), name.clone());
+                                }
+                                data.insert(fname.to_string(), map);
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

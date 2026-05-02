@@ -1,1 +1,16 @@
 /target
+/target_test
+/.arduino-build/
+/.arduino-build-6axis/
+/.arduino-build-switchable/
+/.arduino-build-cache/
+/.arduino-cli/
+/.arduino-cli-data/
+/.arduino-cli-downloads/
+/.arduino-output/
+/.arduino-output-6axis/
+/.arduino-output-switchable/
+/.arduino-sketchbook/
+/.claude/
+/status_ble.log
+/AUDIT_REPORT.md

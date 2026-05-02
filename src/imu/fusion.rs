@@ -7,6 +7,7 @@ use crate::{
 use crate::imu::drift::ZuptDetector;
 use nalgebra::{UnitQuaternion, Vector3};
 use std::collections::HashMap;
+use std::time::Instant;
 
 /// Manages the assignment of tracker IDs to bone IDs.
 #[derive(Default, Debug)]
@@ -63,6 +64,8 @@ pub struct FusionEngine {
     zupt_offsets: HashMap<u8, UnitQuaternion<f32>>,
     // Per-tracker ZUPT detectors
     zupt_detectors: HashMap<u8, ZuptDetector>,
+    // Per-tracker last process timestamp (for angular velocity estimation)
+    last_process_times: HashMap<u8, Instant>,
     // Default parameters for ZUPT detectors (used when creating/recreating detectors)
     zupt_window_size: usize,
     zupt_accel_var_threshold: f32,
@@ -91,6 +94,7 @@ impl FusionEngine {
             mag_calibrations: HashMap::new(),
             filters: HashMap::new(),
             zupt_detectors: HashMap::new(),
+            last_process_times: HashMap::new(),
             // default ZUPT detector parameters
             zupt_window_size: 8,
             zupt_accel_var_threshold: 0.0005,
@@ -166,6 +170,26 @@ impl FusionEngine {
                 let sensor_calibrated_pose =
                     imu::calibration::apply_sensor_calibration(drift_compensated_pose, &mag_calib);
 
+                // --- Angular Velocity Estimation ---
+                // 固件只傳送已融合的四元數，沒有原始陀螺儀數據。
+                // 從連續幀的四元數差分估算角速度，供 ZUPT 判斷使用。
+                let now = Instant::now();
+                let estimated_angular_velocity = {
+                    let prev_rot = self.last_rotations.get(tracker_id).copied();
+                    let dt = self.last_process_times.get(tracker_id)
+                        .map(|t| now.duration_since(*t).as_secs_f32())
+                        .unwrap_or(0.0);
+                    if let (Some(prev), true) = (prev_rot, dt > 1e-6 && dt < 0.5) {
+                        let q_delta = prev.inverse() * sensor_calibrated_pose.rotation;
+                        q_delta.axis_angle()
+                            .map(|(axis, angle)| axis.into_inner() * (angle / dt))
+                            .unwrap_or(Vector3::zeros())
+                    } else {
+                        Vector3::zeros()
+                    }
+                };
+                self.last_process_times.insert(*tracker_id, now);
+
                 // --- ZUPT (Zero Velocity Update) for Feet ---
                 // 使用 `ZuptDetector` 進行更穩健的靜止偵測，取代簡單的閾值檢查。
                 let mut zupt_corrected_rotation = sensor_calibrated_pose.rotation;
@@ -181,7 +205,7 @@ impl FusionEngine {
                     // lightweight temporary from the calibrated pose fields.
                     let tmp_filtered = imu::pose::FilteredPose {
                         rotation: sensor_calibrated_pose.rotation,
-                        angular_velocity: sensor_calibrated_pose.angular_velocity,
+                        angular_velocity: estimated_angular_velocity,
                         acceleration: sensor_calibrated_pose.acceleration,
                         magnetic_field: sensor_calibrated_pose.magnetic_field,
                     };
@@ -289,7 +313,7 @@ impl FusionEngine {
                     quat[3], quat[0], quat[1], quat[2],
                 ));
                 let (_roll, _pitch, yaw) = current_rot.euler_angles();
-                let yaw_only_quat = UnitQuaternion::from_euler_angles(0.0, yaw, 0.0);
+                let yaw_only_quat = UnitQuaternion::from_euler_angles(0.0, 0.0, yaw);
                 self.yaw_offsets.insert(*id, yaw_only_quat.inverse());
             }
         }
@@ -307,6 +331,7 @@ impl FusionEngine {
         self.mounting_rotations.clear();
         self.zupt_offsets.clear();
         self.last_rotations.clear();
+        self.last_process_times.clear();
         self.mag_calibration_points.clear();
         self.mag_calibration_active.clear();
         self.filters.clear();

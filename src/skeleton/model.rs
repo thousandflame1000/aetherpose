@@ -237,16 +237,20 @@ impl SkeletonModel {
         for id in update_order {
             if let Some(bone) = self.bones.get(&id).cloned() {
                 let (parent_pos, parent_rot) = if let Some(pid) = bone.parent_id {
-                    let p = self.bones.get(&pid).unwrap();
-                    (p.global_position, p.global_rotation)
+                    if let Some(p) = self.bones.get(&pid) {
+                        (p.global_position, p.global_rotation)
+                    } else {
+                        (Vector3::zeros(), UnitQuaternion::identity())
+                    }
                 } else {
                     (Vector3::zeros(), UnitQuaternion::identity()) // World Origin
                 };
 
-                let current = self.bones.get_mut(&id).unwrap();
-                current.global_rotation = parent_rot * current.local_rotation;
-                current.global_position =
-                    parent_pos + (current.global_rotation * current.local_position);
+                if let Some(current) = self.bones.get_mut(&id) {
+                    current.global_rotation = parent_rot * current.local_rotation;
+                    current.global_position =
+                        parent_pos + (current.global_rotation * current.local_position);
+                }
             }
         }
     }

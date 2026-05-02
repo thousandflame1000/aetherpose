@@ -5,26 +5,27 @@ use std::path::Path;
 fn collect_keys_from_src(dir: &Path) -> Vec<String> {
     let mut keys = Vec::new();
     if dir.is_dir() {
-        for entry in fs::read_dir(dir).unwrap() {
-            let entry = entry.unwrap();
-            let path = entry.path();
-            if path.is_dir() {
-                keys.extend(collect_keys_from_src(&path));
-            } else if let Some(ext) = path.extension() {
-                if ext == "rs" {
-                    if let Ok(mut f) = File::open(&path) {
-                        let mut contents = String::new();
-                        let _ = f.read_to_string(&mut contents);
-                        // find occurrences of t("...") or t('...')
-                        let mut start = 0usize;
-                        while let Some(idx) = contents[start..].find(".t(\"") {
-                            let abs = start + idx + 4; // start of key
-                            if let Some(end) = contents[abs..].find("\"") {
-                                let key = &contents[abs..abs + end];
-                                keys.push(key.to_string());
-                                start = abs + end + 1;
-                            } else {
-                                break;
+        if let Ok(read_dir) = fs::read_dir(dir) {
+            for entry in read_dir.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    keys.extend(collect_keys_from_src(&path));
+                } else if let Some(ext) = path.extension() {
+                    if ext == "rs" {
+                        if let Ok(mut f) = File::open(&path) {
+                            let mut contents = String::new();
+                            let _ = f.read_to_string(&mut contents);
+                            // find occurrences of t("...") or t('...')
+                            let mut start = 0usize;
+                            while let Some(idx) = contents[start..].find(".t(\"") {
+                                let abs = start + idx + 4; // start of key
+                                if let Some(end) = contents[abs..].find("\"") {
+                                    let key = &contents[abs..abs + end];
+                                    keys.push(key.to_string());
+                                    start = abs + end + 1;
+                                } else {
+                                    break;
+                                }
                             }
                         }
                     }
@@ -67,8 +68,8 @@ fn main() {
         let _ = fs::create_dir_all(i18n_dir);
     }
 
-    for entry in fs::read_dir(i18n_dir).unwrap() {
-        if let Ok(entry) = entry {
+    if let Ok(rd) = fs::read_dir(i18n_dir) {
+        for entry in rd.flatten() {
             let path = entry.path();
             if path.extension().and_then(|e| e.to_str()) == Some("json") {
                 println!("Processing {}", path.display());

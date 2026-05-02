@@ -39,18 +39,28 @@ impl OneEuroFilter {
     pub fn filter(&mut self, val: UnitQuaternion<f32>) -> UnitQuaternion<f32> {
         let now = Instant::now();
 
-        if self.last_time.is_none() {
-            self.last_time = Some(now);
-            self.last_val = Some(val);
-            return val;
-        }
+        let last_time = match self.last_time {
+            Some(t) => t,
+            None => {
+                self.last_time = Some(now);
+                self.last_val = Some(val);
+                return val;
+            }
+        };
 
-        let dt = (now - self.last_time.unwrap()).as_secs_f32();
+        let dt = (now - last_time).as_secs_f32();
         if dt <= 0.0 {
             return self.last_val.unwrap_or(val);
         }
 
-        let prev_val = self.last_val.unwrap();
+        let prev_val = match &self.last_val {
+            Some(p) => *p,
+            None => {
+                self.last_time = Some(now);
+                self.last_val = Some(val);
+                return val;
+            }
+        };
 
         // 1. 計算角速度 (Derivative)
         // delta_q = val * prev_val^-1

@@ -30,25 +30,37 @@ impl OneEuroFilter {
     }
 
     fn alpha(cutoff: f32, dt: f32) -> f32 {
-        let tau = 1.0 / (2.0 * PI * cutoff);
+        // Guard against zero or near-zero cutoff which would cause division by zero.
+        let cutoff_safe = if cutoff <= 1e-6 { 1e-6 } else { cutoff };
+        let tau = 1.0 / (2.0 * PI * cutoff_safe);
         1.0 / (1.0 + tau / dt)
     }
 
     pub fn filter(&mut self, val: UnitQuaternion<f32>) -> UnitQuaternion<f32> {
         let now = Instant::now();
 
-        if self.last_time.is_none() {
-            self.last_time = Some(now);
-            self.last_val = Some(val);
-            return val;
-        }
+        let last_time = match self.last_time {
+            Some(t) => t,
+            None => {
+                self.last_time = Some(now);
+                self.last_val = Some(val);
+                return val;
+            }
+        };
 
-        let dt = (now - self.last_time.unwrap()).as_secs_f32();
+        let dt = (now - last_time).as_secs_f32();
         if dt <= 0.0 {
             return self.last_val.unwrap_or(val);
         }
 
-        let prev_val = self.last_val.unwrap();
+        let prev_val = match &self.last_val {
+            Some(p) => *p,
+            None => {
+                self.last_time = Some(now);
+                self.last_val = Some(val);
+                return val;
+            }
+        };
 
         // 1. 計算角速度 (Derivative)
         // delta_q = val * prev_val^-1

@@ -12,6 +12,13 @@
   "packet_count": "Packet Count:",
 
   "preview.controls_hint": "Left-drag rotate | Mouse wheel zoom",
+  "camera.projection": "Projection",
+  "camera.matrix": "Camera Matrix",
+  "camera.orthographic": "Orthographic",
+  "camera.perspective": "Perspective",
+  "camera.switch_orthographic": "Use Orthographic",
+  "camera.switch_perspective": "Use Perspective",
+  "camera.toggle_projection": "Toggle projection mode",
 
   "calibration.reset_view": "Reset View",
   "calibration.reset_yaw": "Reset Yaw",
@@ -63,6 +70,7 @@
   "tracker.connection.udp": "📡 UDP",
   "tracker.unassigned": "Unassigned",
 
+  "monitor.scroll_hint": "💡 Tip: scroll horizontally if columns overflow",
   "monitor.waiting_connection": "Waiting for connections...",
   "shake_assign.instruction": "Click the button below, then shake the corresponding tracker to assign it.",
   "shake_assign.waiting": "👋 Waiting...",

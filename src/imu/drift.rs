@@ -15,16 +15,17 @@ pub fn compensate_drift(pose: FilteredPose, correction_strength: f32) -> Filtere
     let mut corrected_rotation = pose.rotation;
 
     // 僅在補償強度 > 0 且加速度計數據有效時 (例如不是在自由落體狀態) 才進行修正
-    if correction_strength > 0.0 && pose.acceleration.magnitude_squared() > 0.25 {
-        // 0.25 約為 (0.5g)^2
+    if correction_strength > 0.0 && pose.acceleration.magnitude_squared() > 24.1 {
+        // 24.1 = (0.5 * 9.81)^2 m/s²，低於此表示接近自由落體，跳過補償
         // 1. 從加速度計獲取 "up" 方向。此向量在 Tracker 的局部座標系中指向上方。
         let measured_up = pose.acceleration.normalize();
 
         // 2. 透過當前姿態，計算出 Tracker 認為的 "up" 在世界座標系中的方向。
         let current_world_up = pose.rotation * measured_up;
 
-        // 3. 世界座標系中「真正」的向上方向。我們假設 Y 軸向上。
-        let world_up = Vector3::y();
+        // 3. 世界座標系中「真正」的向上方向。
+        // Firmware 的 Madgwick 使用 Z-up 慣例（重力參考向量 [0,0,1]），因此用 Z 軸。
+        let world_up = Vector3::z();
 
         // 4. 找到一個能將 "Tracker 認為的 up" 對齊到 "世界真實的 up" 的旋轉。
         if let Some(correction_quat) =

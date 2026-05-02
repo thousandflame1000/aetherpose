@@ -8,9 +8,15 @@ use std::time::{Duration, Instant};
 pub struct Tracker {
     pub id: u8,
     pub last_seen: Instant,
-    pub quat: Option<[f32; 4]>,
+    /// Raw gyroscope reading, rad/s [x, y, z]
+    pub gyro: Option<[f32; 3]>,
+    /// Accelerometer reading, m/s² [x, y, z]
     pub accel: Option<[f32; 3]>,
+    /// Magnetometer reading, uT [x, y, z] (None or all-zeros = 6-axis)
     pub mag: Option<[f32; 3]>,
+    /// Time delta in seconds since the previous sample
+    pub dt: Option<f32>,
+    pub stationary: bool,
 
     // Metrics
     pub received_packets: u64,
@@ -24,9 +30,11 @@ impl Tracker {
         Self {
             id,
             last_seen: Instant::now(),
-            quat: None,
+            gyro: None,
             accel: None,
             mag: None,
+            dt: None,
+            stationary: false,
             received_packets: 0,
             lost_packets: 0,
             last_sequence: None,
@@ -38,12 +46,10 @@ impl Tracker {
         self.last_seen = Instant::now();
         self.received_packets = self.received_packets.saturating_add(1);
 
-        // sequence handling (best-effort)
         if let Some(seq) = packet_data.sequence {
             if let Some(last) = self.last_sequence {
                 let expected = last.wrapping_add(1);
                 if seq != expected {
-                    // a simple heuristic for missed packets
                     let missed = seq.wrapping_sub(expected) as u64;
                     self.lost_packets = self.lost_packets.saturating_add(missed);
                 }
@@ -51,14 +57,17 @@ impl Tracker {
             self.last_sequence = Some(seq);
         }
 
-        if let Some(q) = packet_data.quat {
-            self.quat = Some(q);
+        if let Some(g) = packet_data.gyro {
+            self.gyro = Some(g);
         }
         if let Some(a) = packet_data.accel {
             self.accel = Some(a);
         }
         if let Some(m) = packet_data.mag {
             self.mag = Some(m);
+        }
+        if let Some(dt) = packet_data.dt {
+            self.dt = Some(dt);
         }
     }
 

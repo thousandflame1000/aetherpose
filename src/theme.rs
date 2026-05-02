@@ -49,9 +49,10 @@ pub const UI_STROKE_GRAY: Color32 = Color32::from_gray(60);
 pub const UI_BATT_BG: Color32 = Color32::from_gray(50);
 
 // Layout / metric tokens
-pub const GAP_XS: f32 = 8.0;
-pub const GAP_SM: f32 = 10.0;
-pub const GAP_MD: f32 = 12.0;
+pub const GAP_XXS: f32 = 4.0;
+pub const GAP_XS: f32 = 6.0;
+pub const GAP_SM: f32 = 8.0;
+pub const GAP_MD: f32 = 10.0;
 pub const ICON_SIZE: f32 = 16.0;
 pub const BTN_W: f32 = 120.0;
 pub const BTN_H: f32 = 32.0;
@@ -59,13 +60,39 @@ pub const BATTERY_W: f32 = 72.0;
 pub const BATTERY_H: f32 = 20.0;
 
 // button padding (separate floats since egui::Vec2 isn't const-constructible here)
-pub const BTN_PAD_X: f32 = 12.0;
-pub const BTN_PAD_Y: f32 = 8.0;
+pub const BTN_PAD_X: f32 = 10.0;
+pub const BTN_PAD_Y: f32 = 6.0;
 
 // common geometry tokens
 pub const CORNER_ROUND_MD: f32 = 8.0;
 pub const STROKE_W: f32 = 1.25;
 pub const UI_MAG_POINT: Color32 = Color32::YELLOW;
+
+// Additional layout tokens discovered during cleanup
+pub const SHADOW_OFFSET_Y: f32 = 4.0;
+pub const ICON_BTN_W: f32 = 48.0;
+pub const SWATCH_W: f32 = 24.0;
+pub const SWATCH_H: f32 = 12.0;
+pub const TABLE_MIN_COL_WIDTH: f32 = 80.0;
+pub const INPUT_W_XL: f32 = 300.0;
+pub const INPUT_W_LARGE: f32 = 260.0;
+pub const INPUT_W_MED: f32 = 120.0;
+pub const INPUT_W_SMALL: f32 = 100.0;
+pub const SCROLL_MAX_H: f32 = 160.0;
+
+// font sizes
+pub const FONT_TINY: f32 = 10.0;
+pub const FONT_SMALL: f32 = 11.0;
+pub const FONT_REG: f32 = 12.0;
+
+// geometry radii
+pub const CORNER_ROUND_SM: f32 = 4.0;
+pub const BONE_RADIUS_HEAD: f32 = 12.0;
+pub const BONE_RADIUS_DEFAULT: f32 = 7.0;
+pub const POINT_RADIUS: f32 = 4.0;
+
+// window layout
+pub const WINDOW_MARGIN: f32 = 14.0;
 
 // Axes
 pub const UI_AXIS_X: Color32 = Color32::RED;
@@ -93,7 +120,6 @@ pub struct Theme {
 	pub btn_primary: Color32,
 	pub btn_secondary: Color32,
 	pub btn_danger: Color32,
-
 	pub window_fill: Color32,
 	pub panel_fill: Color32,
 	pub canvas_fill: Color32,
@@ -127,6 +153,7 @@ pub struct Theme {
 	pub stroke_gray: Color32,
 	pub batt_bg: Color32,
 	pub mag_point: Color32,
+	pub stroke_w: f32,
 
 	pub axis_x: Color32,
 	pub axis_y: Color32,
@@ -134,6 +161,42 @@ pub struct Theme {
 
 	pub foreground: Color32,
 	pub border: Color32,
+
+	// layout metrics as part of the theme so variants can tune them
+	pub shadow_offset_y: f32,
+	pub icon_btn_w: f32,
+	pub icon_size: f32,
+	pub gap_xxs: f32,
+	pub gap_xs: f32,
+	pub gap_sm: f32,
+	pub gap_md: f32,
+	// button padding
+	pub btn_pad_x: f32,
+	pub btn_pad_y: f32,
+	// battery widget size
+	pub battery_w: f32,
+	pub battery_h: f32,
+	pub btn_w: f32,
+	pub btn_h: f32,
+	pub swatch_w: f32,
+	pub swatch_h: f32,
+	pub table_min_col_width: f32,
+	pub input_w_xl: f32,
+	pub input_w_large: f32,
+	pub input_w_med: f32,
+	pub input_w_small: f32,
+	pub scroll_max_h: f32,
+
+	// font + radius metrics
+	pub font_tiny: f32,
+	pub font_small: f32,
+	pub font_reg: f32,
+	pub corner_round_sm: f32,
+	pub corner_round_md: f32,
+	pub bone_radius_head: f32,
+	pub bone_radius_default: f32,
+	pub point_radius: f32,
+	pub window_margin: f32,
 }
 
 impl Theme {
@@ -176,6 +239,38 @@ impl Theme {
 			axis_z: UI_AXIS_Z,
 			foreground: UI_FOREGROUND,
 			border: UI_BORDER,
+			font_tiny: FONT_TINY,
+			font_small: FONT_SMALL,
+			font_reg: FONT_REG,
+			corner_round_sm: CORNER_ROUND_SM,
+			corner_round_md: CORNER_ROUND_MD,
+			bone_radius_head: BONE_RADIUS_HEAD,
+			bone_radius_default: BONE_RADIUS_DEFAULT,
+			point_radius: POINT_RADIUS,
+			window_margin: WINDOW_MARGIN,
+
+			shadow_offset_y: SHADOW_OFFSET_Y,
+			stroke_w: STROKE_W,
+			icon_btn_w: ICON_BTN_W,
+			icon_size: ICON_SIZE,
+			gap_xxs: GAP_XXS,
+			gap_xs: GAP_XS,
+			gap_sm: GAP_SM,
+			gap_md: GAP_MD,
+			btn_pad_x: BTN_PAD_X,
+			btn_pad_y: BTN_PAD_Y,
+			battery_w: BATTERY_W,
+			battery_h: BATTERY_H,
+			btn_w: BTN_W,
+			btn_h: BTN_H,
+			swatch_w: SWATCH_W,
+			swatch_h: SWATCH_H,
+			table_min_col_width: TABLE_MIN_COL_WIDTH,
+			input_w_xl: INPUT_W_XL,
+			input_w_large: INPUT_W_LARGE,
+			input_w_med: INPUT_W_MED,
+			input_w_small: INPUT_W_SMALL,
+			scroll_max_h: SCROLL_MAX_H,
 		}
 	}
 
@@ -219,6 +314,38 @@ impl Theme {
 			axis_z: Color32::BLUE,
 			foreground: Color32::BLACK,
 			border: Color32::from_gray(160),
+			font_tiny: FONT_TINY,
+			font_small: FONT_SMALL,
+			font_reg: FONT_REG,
+			corner_round_sm: CORNER_ROUND_SM,
+			corner_round_md: CORNER_ROUND_MD,
+			bone_radius_head: BONE_RADIUS_HEAD,
+			bone_radius_default: BONE_RADIUS_DEFAULT,
+			point_radius: POINT_RADIUS,
+			window_margin: WINDOW_MARGIN,
+
+			shadow_offset_y: SHADOW_OFFSET_Y,
+			stroke_w: STROKE_W,
+			icon_btn_w: ICON_BTN_W,
+			icon_size: ICON_SIZE,
+			gap_xxs: GAP_XXS,
+			gap_xs: GAP_XS,
+			gap_sm: GAP_SM,
+			gap_md: GAP_MD,
+			btn_pad_x: BTN_PAD_X,
+			btn_pad_y: BTN_PAD_Y,
+			battery_w: BATTERY_W,
+			battery_h: BATTERY_H,
+			btn_w: BTN_W,
+			btn_h: BTN_H,
+			swatch_w: SWATCH_W,
+			swatch_h: SWATCH_H,
+			table_min_col_width: TABLE_MIN_COL_WIDTH,
+			input_w_xl: INPUT_W_XL,
+			input_w_large: INPUT_W_LARGE,
+			input_w_med: INPUT_W_MED,
+			input_w_small: INPUT_W_SMALL,
+			scroll_max_h: SCROLL_MAX_H,
 		}
 	}
 
@@ -270,6 +397,38 @@ impl Theme {
 			axis_z: UI_AXIS_Z,
 			foreground: Color32::from_rgb(131, 148, 150),
 			border: Color32::from_gray(90),
+			font_tiny: FONT_TINY,
+			font_small: FONT_SMALL,
+			font_reg: FONT_REG,
+			corner_round_sm: CORNER_ROUND_SM,
+			corner_round_md: CORNER_ROUND_MD,
+			bone_radius_head: BONE_RADIUS_HEAD,
+			bone_radius_default: BONE_RADIUS_DEFAULT,
+			point_radius: POINT_RADIUS,
+			window_margin: WINDOW_MARGIN,
+
+			shadow_offset_y: SHADOW_OFFSET_Y,
+			stroke_w: STROKE_W,
+			icon_btn_w: ICON_BTN_W,
+			icon_size: ICON_SIZE,
+			gap_xxs: GAP_XXS,
+			gap_xs: GAP_XS,
+			gap_sm: GAP_SM,
+			gap_md: GAP_MD,
+			btn_pad_x: BTN_PAD_X,
+			btn_pad_y: BTN_PAD_Y,
+			battery_w: BATTERY_W,
+			battery_h: BATTERY_H,
+			btn_w: BTN_W,
+			btn_h: BTN_H,
+			swatch_w: SWATCH_W,
+			swatch_h: SWATCH_H,
+			table_min_col_width: TABLE_MIN_COL_WIDTH,
+			input_w_xl: INPUT_W_XL,
+			input_w_large: INPUT_W_LARGE,
+			input_w_med: INPUT_W_MED,
+			input_w_small: INPUT_W_SMALL,
+			scroll_max_h: SCROLL_MAX_H,
 		}
 	}
 
@@ -304,6 +463,37 @@ impl Theme {
 				axis_z: color_to_rgb(self.axis_z),
 				foreground: color_to_rgb(self.foreground),
 				border: color_to_rgb(self.border),
+				stroke_w: self.stroke_w,
+				shadow_offset_y: self.shadow_offset_y,
+				icon_btn_w: self.icon_btn_w,
+				icon_size: self.icon_size,
+				gap_xxs: self.gap_xxs,
+				gap_xs: self.gap_xs,
+				gap_sm: self.gap_sm,
+				gap_md: self.gap_md,
+				btn_pad_x: self.btn_pad_x,
+				btn_pad_y: self.btn_pad_y,
+				battery_w: self.battery_w,
+				battery_h: self.battery_h,
+				btn_w: self.btn_w,
+				btn_h: self.btn_h,
+				swatch_w: self.swatch_w,
+				swatch_h: self.swatch_h,
+				table_min_col_width: self.table_min_col_width,
+				input_w_xl: self.input_w_xl,
+				input_w_large: self.input_w_large,
+				input_w_med: self.input_w_med,
+				input_w_small: self.input_w_small,
+				scroll_max_h: self.scroll_max_h,
+				font_tiny: self.font_tiny,
+				font_small: self.font_small,
+				font_reg: self.font_reg,
+				corner_round_sm: self.corner_round_sm,
+				corner_round_md: self.corner_round_md,
+				bone_radius_head: self.bone_radius_head,
+				bone_radius_default: self.bone_radius_default,
+				point_radius: self.point_radius,
+				window_margin: self.window_margin,
 			}
 		}
 
@@ -346,6 +536,37 @@ impl Theme {
 				axis_z: Color32::from_rgb(def.axis_z[0], def.axis_z[1], def.axis_z[2]),
 				foreground: Color32::from_rgb(def.foreground[0], def.foreground[1], def.foreground[2]),
 				border: Color32::from_rgb(def.border[0], def.border[1], def.border[2]),
+				stroke_w: def.stroke_w,
+				shadow_offset_y: def.shadow_offset_y,
+				icon_btn_w: def.icon_btn_w,
+				icon_size: def.icon_size,
+				gap_xxs: def.gap_xxs,
+				gap_xs: def.gap_xs,
+				gap_sm: def.gap_sm,
+				gap_md: def.gap_md,
+				btn_pad_x: def.btn_pad_x,
+				btn_pad_y: def.btn_pad_y,
+				battery_w: def.battery_w,
+				battery_h: def.battery_h,
+				btn_w: def.btn_w,
+				btn_h: def.btn_h,
+				swatch_w: def.swatch_w,
+				swatch_h: def.swatch_h,
+				table_min_col_width: def.table_min_col_width,
+				input_w_xl: def.input_w_xl,
+				input_w_large: def.input_w_large,
+				input_w_med: def.input_w_med,
+				input_w_small: def.input_w_small,
+				scroll_max_h: def.scroll_max_h,
+				font_tiny: def.font_tiny,
+				font_small: def.font_small,
+				font_reg: def.font_reg,
+				corner_round_sm: def.corner_round_sm,
+				corner_round_md: def.corner_round_md,
+				bone_radius_head: def.bone_radius_head,
+				bone_radius_default: def.bone_radius_default,
+				point_radius: def.point_radius,
+				window_margin: def.window_margin,
 			}
 		}
 
@@ -369,7 +590,7 @@ fn color_to_rgb(c: Color32) -> [u8; 3] {
 	[c.r(), c.g(), c.b()]
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ThemeDef {
 	pub btn_primary: [u8; 3],
 	pub btn_secondary: [u8; 3],
@@ -400,5 +621,41 @@ pub struct ThemeDef {
 	pub axis_z: [u8; 3],
 	pub foreground: [u8; 3],
 	pub border: [u8; 3],
+
+	pub stroke_w: f32,
+
+	// layout metrics
+	pub shadow_offset_y: f32,
+	pub icon_btn_w: f32,
+	pub icon_size: f32,
+	pub gap_xxs: f32,
+	pub gap_xs: f32,
+	pub gap_sm: f32,
+	pub gap_md: f32,
+	pub btn_pad_x: f32,
+	pub btn_pad_y: f32,
+	pub battery_w: f32,
+	pub battery_h: f32,
+	pub btn_w: f32,
+	pub btn_h: f32,
+	pub swatch_w: f32,
+	pub swatch_h: f32,
+	pub table_min_col_width: f32,
+	pub input_w_xl: f32,
+	pub input_w_large: f32,
+	pub input_w_med: f32,
+	pub input_w_small: f32,
+	pub scroll_max_h: f32,
+
+	// font + radius metrics
+	pub corner_round_md: f32,
+	pub font_tiny: f32,
+	pub font_small: f32,
+	pub font_reg: f32,
+	pub corner_round_sm: f32,
+	pub bone_radius_head: f32,
+	pub bone_radius_default: f32,
+	pub point_radius: f32,
+	pub window_margin: f32,
 }
 
