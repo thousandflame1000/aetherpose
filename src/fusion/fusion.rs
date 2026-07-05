@@ -5,7 +5,6 @@ use crate::fusion::{confidence, weighting};
 use crate::ik::goals::Goal;
 use crate::imu::calibration::MagCalibration;
 use crate::imu::drift::ZuptDetector;
-use crate::imu::ekf::{EkfConfig, ImuEkf};
 use crate::imu::trajectory::{ImuTrajectoryEstimator, TrajectoryIntegrationMode};
 use crate::net::tracker::Tracker;
 use crate::skeleton::model::SkeletonModel;
@@ -21,9 +20,7 @@ const DEFAULT_IMU_POSITION_WEIGHT: f32 = 0.35;
 pub struct FusionEngine {
     pub assigner: TrackerBoneAssigner,
     pub calibration_offsets: HashMap<u8, UnitQuaternion<f32>>,
-    /// Per-tracker EKF instances (replaces on-device Madgwick).
-    ekf_instances: HashMap<u8, ImuEkf>,
-    /// Cached fused quaternions [x, y, z, w] from EKF, used by fusion process().
+    /// Cached quaternions from device (injected directly from firmware Madgwick).
     ekf_quaternions: HashMap<u8, UnitQuaternion<f32>>,
     filters: HashMap<u8, OneEuroFilter>,
     imu_trajectory: ImuTrajectoryEstimator,
@@ -62,7 +59,6 @@ impl FusionEngine {
         Self {
             assigner: TrackerBoneAssigner::new(),
             calibration_offsets: HashMap::new(),
-            ekf_instances: HashMap::new(),
             ekf_quaternions: HashMap::new(),
             filters: HashMap::new(),
             imu_trajectory: ImuTrajectoryEstimator::new(),
@@ -212,23 +208,10 @@ impl FusionEngine {
     }
 
     /// Feed raw IMU data into the per-tracker EKF and cache the result.
-    /// Returns [x, y, z, w] quaternion for UI display.
-    pub fn update_ekf(
-        &mut self,
-        tracker_id: u8,
-        gyro: [f32; 3],
-        accel: [f32; 3],
-        mag: [f32; 3],
-        dt: f32,
-    ) -> [f32; 4] {
-        let ekf = self
-            .ekf_instances
-            .entry(tracker_id)
-            .or_insert_with(|| ImuEkf::new(EkfConfig::default()));
-        ekf.update(gyro, accel, mag, dt);
-        let q = ekf.quaternion();
+    /// Write a device-side quaternion ([x,y,z,w]) directly into the cached map.
+    pub fn inject_quaternion(&mut self, tracker_id: u8, xyzw: [f32; 4]) {
+        let q = UnitQuaternion::new_normalize(Quaternion::new(xyzw[3], xyzw[0], xyzw[1], xyzw[2]));
         self.ekf_quaternions.insert(tracker_id, q);
-        [q.i, q.j, q.k, q.w] // [x, y, z, w]
     }
 
     pub fn start_mag_calibration(&mut self, tracker_id: u8) {
@@ -325,7 +308,7 @@ impl FusionEngine {
         let mut sorted_ids: Vec<u8> = trackers.keys().copied().collect();
         sorted_ids.sort();
 
-        let priority_bones = [0, 12, 22, 2, 11, 21, 32, 42];
+        let priority_bones = [2, 32, 42, 4, 11, 21, 0, 12];
         self.assigner.map.clear();
 
         for (index, tracker_id) in sorted_ids.iter().enumerate() {
@@ -367,7 +350,6 @@ impl FusionEngine {
         self.mag_calibration_active.clear();
         self.last_rotations.clear();
         self.last_stationary_times.clear();
-        self.ekf_instances.clear();
         self.ekf_quaternions.clear();
         self.imu_trajectory.clear();
         log::info!("Cleared calibration offsets and IMU trajectory state");

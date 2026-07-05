@@ -14,3 +14,18 @@
 /.claude/
 /status_ble.log
 /AUDIT_REPORT.md
+
+# logs and runtime output
+*.log
+frontend/err.txt
+frontend/out.txt
+
+# python caches
+__pycache__/
+*.pyc
+*.pyo
+
+# captured / generated data
+frontend/DepthCamera_*.json
+frontend/DepthCapture_*.png
+*.npz

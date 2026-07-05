@@ -28,8 +28,9 @@ env_logger = "0.10"
 # 時間處理
 chrono = "0.4"
 
-# GUI 介面框架
-eframe = "0.29"
+# WebSocket 伺服器 (替代 eframe，供 Python 前端連線)
+axum = { version = "0.7", features = ["ws"] }
+tower-http = { version = "0.5", features = ["cors"] }
 serialport = "4.8.1"
 btleplug = "0.11"
 futures = "0.3"

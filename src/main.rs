@@ -1,3 +1,4 @@
-fn main() -> eframe::Result<()> {
-    aetherpose::app::runtime::run()
+#[tokio::main]
+async fn main() {
+    aetherpose::app::runtime::run().await;
 }

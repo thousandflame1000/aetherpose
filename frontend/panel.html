@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>Aetherpose</title>
+<style>
+  :root {
+    --bg:       #0d1117;
+    --bg2:      #161b22;
+    --bg3:      #21262d;
+    --border:   #30363d;
+    --accent:   #58a6ff;
+    --accent2:  #ffaf5a;
+    --green:    #3fb950;
+    --red:      #f85149;
+    --text:     #c9d1d9;
+    --text2:    #8b949e;
+    --radius:   6px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 13px/1.5 'Segoe UI', system-ui, sans-serif;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── top bar ── */
+  #topbar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 8px 14px;
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  #topbar h1 { font-size: 14px; font-weight: 600; color: var(--accent); }
+  #status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); flex-shrink: 0; }
+  #status-dot.on { background: var(--green); }
+  #status-text { font-size: 12px; color: var(--text2); }
+  #pkt { font-size: 12px; color: var(--text2); margin-left: auto; }
+
+  /* ── tabs ── */
+  #tabs {
+    display: flex;
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .tab {
+    padding: 7px 16px;
+    font-size: 12px; font-weight: 500;
+    cursor: pointer; color: var(--text2);
+    border-bottom: 2px solid transparent;
+    transition: color .15s, border-color .15s;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* ── content ── */
+  #content { flex: 1; overflow-y: auto; padding: 12px 14px; }
+  .page { display: none; }
+  .page.active { display: block; }
+
+  /* ── section ── */
+  .section {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 10px;
+    overflow: hidden;
+  }
+  .section-hdr {
+    padding: 7px 12px;
+    font-size: 11px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .06em;
+    color: var(--accent);
+    background: var(--bg3);
+    border-bottom: 1px solid var(--border);
+  }
+  .section-body { padding: 10px 12px; }
+
+  /* ── row ── */
+  .row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .row:last-child { margin-bottom: 0; }
+  label { font-size: 12px; color: var(--text2); white-space: nowrap; min-width: 80px; }
+
+  /* ── buttons ── */
+  .btn {
+    padding: 5px 12px; font-size: 12px;
+    background: var(--bg3); color: var(--text);
+    border: 1px solid var(--border); border-radius: var(--radius);
+    cursor: pointer; transition: background .15s, border-color .15s;
+  }
+  .btn:hover { background: #2d333b; border-color: var(--accent); color: var(--accent); }
+  .btn.primary { background: var(--accent); color: #000; border-color: var(--accent); font-weight: 600; }
+  .btn.primary:hover { background: #79b8ff; }
+  .btn.danger { border-color: var(--red); color: var(--red); }
+  .btn.danger:hover { background: rgba(248,81,73,.15); }
+  .btn-group { display: flex; gap: 6px; flex-wrap: wrap; }
+
+  /* ── slider ── */
+  input[type=range] {
+    flex: 1; height: 4px; accent-color: var(--accent);
+    cursor: pointer;
+  }
+  .slider-val { font-size: 11px; color: var(--accent); min-width: 34px; text-align: right; }
+
+  /* ── text input ── */
+  input[type=text], input[type=number] {
+    background: var(--bg3); color: var(--text);
+    border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 4px 8px; font-size: 12px; flex: 1;
+    outline: none; transition: border-color .15s;
+  }
+  input[type=text]:focus, input[type=number]:focus { border-color: var(--accent); }
+
+  /* ── checkbox ── */
+  input[type=checkbox] { accent-color: var(--accent); width: 14px; height: 14px; cursor: pointer; }
+
+  /* ── tracker cards ── */
+  .tracker-card {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 8px 10px;
+    margin-bottom: 8px;
+  }
+  .tracker-card .t-id { font-weight: 700; color: var(--accent); font-size: 13px; }
+  .tracker-card .t-bone { color: var(--accent2); font-size: 12px; }
+  .tracker-card .t-meta { color: var(--text2); font-size: 11px; margin-top: 3px; }
+  .tracker-card .t-bar {
+    height: 3px; border-radius: 2px;
+    background: var(--bg); margin-top: 6px; overflow: hidden;
+  }
+  .tracker-card .t-bar-fill { height: 100%; background: var(--green); transition: width .3s; }
+  .tracker-card.stationary .t-id::after { content: ' ⏸'; font-size: 10px; color: var(--text2); }
+  #no-trackers { color: var(--text2); font-size: 12px; text-align: center; padding: 20px; }
+
+  /* ── tp status ── */
+  #tp-status { font-size: 11px; color: var(--accent2); padding: 4px 0 8px; }
+
+  /* ── recording status ── */
+  #rec-status { font-size: 11px; color: var(--text2); margin-top: 6px; }
+  #rec-status.recording { color: var(--red); }
+
+  /* ── scrollbar ── */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <div id="status-dot"></div>
+  <h1>Aetherpose</h1>
+  <span id="status-text">Connecting…</span>
+  <span id="pkt">Packets: 0</span>
+</div>
+
+<div id="tabs">
+  <div class="tab active" onclick="switchTab('cal')">Calibration</div>
+  <div class="tab" onclick="switchTab('mon')">Monitor</div>
+  <div class="tab" onclick="switchTab('body')">Body</div>
+  <div class="tab" onclick="switchTab('sys')">System</div>
+</div>
+
+<div id="content">
+
+  <!-- ── Calibration ── -->
+  <div class="page active" id="page-cal">
+    <div class="section">
+      <div class="section-hdr">Actions</div>
+      <div class="section-body">
+        <div class="btn-group">
+          <button class="btn" onclick="cmd('ResetYaw')">Reset Yaw</button>
+          <button class="btn" onclick="cmd('ResetMounting')">Reset Mounting</button>
+          <button class="btn primary" onclick="cmd('AutoAssign')">Auto Assign</button>
+          <button class="btn" onclick="cmd('ClearAllCalibration')">Clear Cal.</button>
+        </div>
+      </div>
+    </div>
+    <div class="section">
+      <div class="section-hdr">TransPose</div>
+      <div class="section-body">
+        <div id="tp-status">Loading…</div>
+      </div>
+    </div>
+    <div class="section">
+      <div class="section-hdr">Trackers</div>
+      <div class="section-body" id="cal-trackers">
+        <div id="no-trackers">No trackers connected</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Monitor ── -->
+  <div class="page" id="page-mon">
+    <div id="mon-trackers"></div>
+  </div>
+
+  <!-- ── Body ── -->
+  <div class="page" id="page-body">
+    <div class="section">
+      <div class="section-hdr">Body Proportions</div>
+      <div class="section-body">
+        <div class="row">
+          <label>IK Smooth</label>
+          <input type="range" id="s-ik" min="0" max="1" step="0.01" value="0.5"
+                 oninput="sliderVal(this,'v-ik'); cmd({'SetIkSmoothness': +this.value})">
+          <span class="slider-val" id="v-ik">0.50</span>
+        </div>
+        <div class="row">
+          <label>Legs</label>
+          <input type="range" id="s-leg" min="0.5" max="1.5" step="0.01" value="1.0"
+                 oninput="sliderVal(this,'v-leg'); sendProp()">
+          <span class="slider-val" id="v-leg">1.00</span>
+        </div>
+        <div class="row">
+          <label>Arms</label>
+          <input type="range" id="s-arm" min="0.5" max="1.5" step="0.01" value="1.0"
+                 oninput="sliderVal(this,'v-arm'); sendProp()">
+          <span class="slider-val" id="v-arm">1.00</span>
+        </div>
+        <div class="row">
+          <label>Spine</label>
+          <input type="range" id="s-spine" min="0.5" max="1.5" step="0.01" value="1.0"
+                 oninput="sliderVal(this,'v-spine'); sendProp()">
+          <span class="slider-val" id="v-spine">1.00</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-hdr">One Euro Filter</div>
+      <div class="section-body">
+        <div class="row">
+          <label>Min Cutoff</label>
+          <input type="range" id="s-cutoff" min="0.01" max="5" step="0.01" value="3.0"
+                 oninput="sliderVal(this,'v-cutoff'); sendSmooth()">
+          <span class="slider-val" id="v-cutoff">3.00</span>
+        </div>
+        <div class="row">
+          <label>Beta</label>
+          <input type="range" id="s-beta" min="0" max="10" step="0.01" value="3.0"
+                 oninput="sliderVal(this,'v-beta'); sendSmooth()">
+          <span class="slider-val" id="v-beta">3.00</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-hdr">Virtual Floor</div>
+      <div class="section-body">
+        <div class="row">
+          <label>Offset</label>
+          <input type="range" id="s-floor" min="-2" max="2" step="0.01" value="0"
+                 oninput="sliderVal(this,'v-floor'); cmd({'SetFloorOffset': +this.value})">
+          <span class="slider-val" id="v-floor">0.00</span>
+          <button class="btn" style="margin-left:6px" onclick="cmd('AutoFloor')">Auto</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-hdr">Drift Compensation</div>
+      <div class="section-body">
+        <div class="row">
+          <label>Strength</label>
+          <input type="range" id="s-drift" min="0" max="1" step="0.01" value="0"
+                 oninput="sliderVal(this,'v-drift'); cmd({'SetDriftCorrection': +this.value})">
+          <span class="slider-val" id="v-drift">0.00</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-hdr">Trajectory Integrator</div>
+      <div class="section-body">
+        <div class="btn-group">
+          <button class="btn" onclick="cmd({'SetTrajectoryIntegrationMode':'rk4'})">EKF + RK4</button>
+          <button class="btn" onclick="cmd({'SetTrajectoryIntegrationMode':'euler'})">EKF + Euler</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-hdr">Leg Calibration</div>
+      <div class="section-body">
+        <div class="btn-group">
+          <button class="btn" onclick="cmd('StartLegCalibration')">Start Leg Cal</button>
+          <button class="btn danger" onclick="cmd('StopLegCalibration')">Stop</button>
+        </div>
+        <div id="leg-ratio" style="font-size:11px;color:var(--text2);margin-top:6px">Leg ratio: —</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── System ── -->
+  <div class="page" id="page-sys">
+    <div class="section">
+      <div class="section-hdr">OSC Output</div>
+      <div class="section-body">
+        <div class="row"><label>IP</label><input type="text" id="osc-ip" value="127.0.0.1"></div>
+        <div class="row"><label>Port</label><input type="number" id="osc-port" value="9000"></div>
+        <button class="btn primary" onclick="applyOsc()">Apply OSC</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-hdr">ZUPT</div>
+      <div class="section-body">
+        <div class="row">
+          <label>Enabled</label>
+          <input type="checkbox" id="zupt-en" checked
+                 onchange="cmd({'SetZuptEnabled': this.checked})">
+        </div>
+        <div class="row"><label>Window</label><input type="number" id="zupt-win" value="8" style="max-width:80px"></div>
+        <div class="row"><label>Accel Var</label><input type="text" id="zupt-accel" value="0.0005" style="max-width:80px"></div>
+        <div class="row"><label>Gyro Thr.</label><input type="text" id="zupt-gyro" value="0.02" style="max-width:80px"></div>
+        <button class="btn" onclick="applyZupt()">Apply ZUPT</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-hdr">Recording</div>
+      <div class="section-body">
+        <div class="row"><label>Filename</label><input type="text" id="rec-file" value="recording.bin"></div>
+        <div class="row">
+          <label>Batch</label><input type="number" id="rec-batch" value="128" style="max-width:70px">
+          <label style="min-width:60px">Flush ms</label><input type="number" id="rec-flush" value="500" style="max-width:70px">
+        </div>
+        <div class="btn-group" style="margin-top:6px">
+          <button class="btn primary" onclick="cmd('StartRecording')">▶ Record</button>
+          <button class="btn danger" onclick="cmd('StopRecording')">■ Stop</button>
+          <button class="btn" onclick="applyRecCfg()">Apply Config</button>
+        </div>
+        <div id="rec-status">Idle</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-hdr">Serial</div>
+      <div class="section-body">
+        <div class="row"><label>Port</label><input type="text" id="ser-port" value="COM3" style="max-width:80px"></div>
+        <div class="row"><label>Baud</label><input type="number" id="ser-baud" value="115200" style="max-width:100px"></div>
+        <div class="row"><label>Enabled</label><input type="checkbox" id="ser-en"></div>
+        <button class="btn" onclick="applySerial()">Apply Serial</button>
+        <div id="ser-status" style="font-size:11px;color:var(--text2);margin-top:4px"></div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /content -->
+
+<script>
+// ── WebSocket ──────────────────────────────────────────────────────────────
+const WS_URL = 'ws://127.0.0.1:9009/ws';
+let ws = null;
+const BONE_NAMES = {0:'Hip',1:'Waist',2:'Chest',3:'Neck',4:'Head',
+  10:'L_UpLeg',11:'L_Leg',12:'L_Foot',
+  20:'R_UpLeg',21:'R_Leg',22:'R_Foot',
+  30:'L_Shoulder',31:'L_UpperArm',32:'L_ForeArm',33:'L_Hand',
+  40:'R_Shoulder',41:'R_UpperArm',42:'R_ForeArm',43:'R_Hand'};
+
+function connect() {
+  ws = new WebSocket(WS_URL);
+  ws.onopen  = () => { setStatus(true); };
+  ws.onclose = () => { setStatus(false); setTimeout(connect, 2000); };
+  ws.onerror = () => { ws.close(); };
+  ws.onmessage = (e) => { try { onMessage(JSON.parse(e.data)); } catch(_){} };
+}
+
+function cmd(c) {
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify(c));
+}
+
+// ── Status ─────────────────────────────────────────────────────────────────
+function setStatus(ok) {
+  document.getElementById('status-dot').className  = ok ? 'on' : '';
+  document.getElementById('status-text').textContent = ok ? 'Connected' : 'Disconnected';
+}
+
+// ── Message handler ────────────────────────────────────────────────────────
+function onMessage(msg) {
+  if (msg.type !== 'Snapshot') return;
+  const d = msg.data;
+
+  document.getElementById('pkt').textContent = 'Packets: ' + (d.packet_count || 0).toLocaleString();
+
+  updateTrackers(d.trackers || {});
+  updateBody(d);
+  updateSystem(d);
+}
+
+// ── Trackers ───────────────────────────────────────────────────────────────
+function updateTrackers(trackers) {
+  const ids = Object.keys(trackers).sort();
+
+  // Calibration tab
+  const calEl = document.getElementById('cal-trackers');
+  const noEl  = document.getElementById('no-trackers');
+  if (ids.length === 0) {
+    calEl.innerHTML = '<div id="no-trackers">No trackers connected</div>';
+  } else {
+    noEl && (noEl.style.display = 'none');
+    ids.forEach(id => {
+      const t = trackers[id];
+      const bone = BONE_NAMES[t.assigned_bone] || '—';
+      let el = document.getElementById('cal-t-' + id);
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'cal-t-' + id;
+        el.style.cssText = 'margin-bottom:6px;font-size:12px;display:flex;align-items:center;gap:8px';
+        calEl.appendChild(el);
+      }
+      el.innerHTML = `<span style="color:var(--accent);font-weight:700">ID ${t.id}</span>
+        <span style="color:var(--text2)">→</span>
+        <span style="color:var(--accent2)">${bone}</span>
+        <span style="color:var(--text2);font-size:11px">${t.tps}tps  ${t.battery.toFixed(0)}%</span>`;
+    });
+  }
+
+  // Monitor tab
+  const monEl = document.getElementById('mon-trackers');
+  monEl.innerHTML = '';
+  if (ids.length === 0) {
+    monEl.innerHTML = '<div style="color:var(--text2);text-align:center;padding:20px;font-size:12px">No trackers</div>';
+    return;
+  }
+  ids.forEach(id => {
+    const t = trackers[id];
+    const bone = BONE_NAMES[t.assigned_bone] || '—';
+    const recv = Math.max(t.received_packets, 1);
+    const loss = (100 * t.lost_packets / recv).toFixed(1);
+    const batt = Math.min(100, Math.max(0, t.battery));
+    monEl.innerHTML += `
+      <div class="tracker-card${t.stationary?' stationary':''}">
+        <div style="display:flex;justify-content:space-between;align-items:baseline">
+          <span class="t-id">ID ${t.id}</span>
+          <span style="font-size:11px;color:var(--text2)">${t.connection_type}</span>
+        </div>
+        <span class="t-bone">${bone}</span>
+        <div class="t-meta">
+          TPS: ${t.tps} &nbsp;|&nbsp; Loss: ${loss}% &nbsp;|&nbsp; RSSI: ${t.rssi} dBm &nbsp;|&nbsp; Seq: ${t.last_sequence}
+        </div>
+        <div class="t-meta" style="margin-top:2px">
+          Battery: ${batt.toFixed(0)}%
+          <div class="t-bar"><div class="t-bar-fill" style="width:${batt}%;background:${batt>40?'var(--green)':batt>15?'#e3b341':'var(--red)'}"></div></div>
+        </div>
+      </div>`;
+  });
+}
+
+// ── Body ───────────────────────────────────────────────────────────────────
+function updateBody(d) {
+  if (d.leg_ratio != null)
+    document.getElementById('leg-ratio').textContent = 'Leg ratio: ' + d.leg_ratio.toFixed(3);
+  setSlider('s-floor', 'v-floor', d.floor_offset);
+}
+
+function setSlider(id, vid, val) {
+  if (val == null) return;
+  const el = document.getElementById(id);
+  if (el && document.activeElement !== el) {
+    el.value = val;
+    document.getElementById(vid).textContent = (+val).toFixed(2);
+  }
+}
+
+// ── System ─────────────────────────────────────────────────────────────────
+function updateSystem(d) {
+  const recEl = document.getElementById('rec-status');
+  if (d.is_recording) {
+    recEl.className = 'recording';
+    recEl.textContent = '● Recording — dropped: ' + (d.recorder_dropped_count || 0);
+  } else {
+    recEl.className = '';
+    recEl.textContent = 'Idle';
+  }
+  const serEl = document.getElementById('ser-status');
+  if (d.serial_status_msg) serEl.textContent = d.serial_status_msg;
+}
+
+// ── Slider helpers ─────────────────────────────────────────────────────────
+function sliderVal(el, vid) {
+  document.getElementById(vid).textContent = (+el.value).toFixed(2);
+}
+function sendProp() {
+  cmd({SetProportions:{
+    leg:   +document.getElementById('s-leg').value,
+    arm:   +document.getElementById('s-arm').value,
+    spine: +document.getElementById('s-spine').value,
+  }});
+}
+function sendSmooth() {
+  cmd({SetSmoothingParams:{
+    min_cutoff: +document.getElementById('s-cutoff').value,
+    beta:       +document.getElementById('s-beta').value,
+  }});
+}
+function applyOsc() {
+  cmd({SetOscTarget:[
+    document.getElementById('osc-ip').value,
+    +document.getElementById('osc-port').value,
+  ]});
+}
+function applyZupt() {
+  cmd({SetZuptParams:{
+    window_size:          +document.getElementById('zupt-win').value,
+    accel_var_threshold:  +document.getElementById('zupt-accel').value,
+    gyro_threshold:       +document.getElementById('zupt-gyro').value,
+  }});
+}
+function applyRecCfg() {
+  cmd({SetRecorderConfig:{
+    filename:          document.getElementById('rec-file').value,
+    batch_size:        +document.getElementById('rec-batch').value,
+    flush_interval_ms: +document.getElementById('rec-flush').value,
+  }});
+}
+function applySerial() {
+  cmd({SetSerialConfig:{
+    enabled: document.getElementById('ser-en').checked,
+    port:    document.getElementById('ser-port').value,
+    baud:    +document.getElementById('ser-baud').value,
+  }});
+}
+
+// ── Tabs ───────────────────────────────────────────────────────────────────
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach((t,i) => {
+    const names = ['cal','mon','body','sys'];
+    t.className = 'tab' + (names[i] === name ? ' active' : '');
+  });
+  document.querySelectorAll('.page').forEach(p => p.className = 'page');
+  document.getElementById('page-'+name).className = 'page active';
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+connect();
+</script>
+</body>
+</html>

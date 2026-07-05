@@ -54,18 +54,43 @@ pub async fn run_ble_client(
         Err(e) => { error!("無法取得 BLE 事件串流: {}", e); return; }
     };
 
+    // Track peripherals already connecting/connected to avoid duplicate attempts.
+    // Shared (not just local) so the per-device notification task can clear its
+    // own entry on disconnect — otherwise a tracker that drops mid-session is
+    // permanently ignored by the scan loop and the whole app must be restarted
+    // to reconnect it.
+    let seen_ids: Arc<Mutex<std::collections::HashSet<btleplug::platform::PeripheralId>>> =
+        Arc::new(Mutex::new(std::collections::HashSet::new()));
+
     while let Some(event) = events.next().await {
-        if let CentralEvent::DeviceDiscovered(id) = event {
-            if let Ok(peripheral) = adapter.peripheral(&id).await {
+        let (id, ev_name) = match event {
+            CentralEvent::DeviceDiscovered(id) => (id, "Discovered"),
+            CentralEvent::DeviceUpdated(id)    => (id, "Updated"),
+            _ => continue,
+        };
+
+        if seen_ids.lock().is_ok_and(|set| set.contains(&id)) { continue; }
+
+        if let Ok(peripheral) = adapter.peripheral(&id).await {
                 let properties = peripheral.properties().await.unwrap_or(None);
+                let name = properties.as_ref()
+                    .and_then(|p| p.local_name.clone())
+                    .unwrap_or_else(|| "?".to_string());
 
                 let is_target = properties.as_ref().is_some_and(|p| {
                     p.local_name.iter().any(|n| n.starts_with("Aetherpose Tracker"))
                         || p.services.contains(&TRACKER_SERVICE_UUID)
                 });
 
+                info!("[BLE] {} {:?} name={:?} target={}", ev_name, id, name, is_target);
+
                 if !is_target { continue; }
-                if let Ok(true) = peripheral.is_connected().await { continue; }
+                if let Ok(true) = peripheral.is_connected().await {
+                    info!("[BLE] {:?} already connected, skip", id);
+                    continue;
+                }
+
+                if let Ok(mut set) = seen_ids.lock() { set.insert(id.clone()); }
 
                 let rssi_str = properties.as_ref().and_then(|p| p.rssi)
                     .map(|r| r.to_string()).unwrap_or_else(|| "未知".to_string());
@@ -97,7 +122,10 @@ pub async fn run_ble_client(
                     error!("重新啟動掃描失敗: {}", e);
                 }
 
-                if !connected { continue; }
+                if !connected {
+                    if let Ok(mut set) = seen_ids.lock() { set.remove(&id); }
+                    continue;
+                }
 
                 info!("連線成功，搜尋服務...");
                 if let Err(e) = peripheral.discover_services().await {
@@ -125,6 +153,8 @@ pub async fn run_ble_client(
                     let sync_char_clone    = sync_char;
                     let p_clone            = peripheral.clone();
                     let status_tx_for_task = status_tx.clone();
+                    let seen_ids_for_task  = seen_ids.clone();
+                    let id_for_task        = id.clone();
 
                     let mut notification_stream = match peripheral.notifications().await {
                         Ok(s) => s,
@@ -135,8 +165,10 @@ pub async fn run_ble_client(
                         }
                     };
 
+                    info!("BLE 裝置訂閱成功，等待韌體 ID...");
+
                     tokio::spawn(async move {
-                        let mut buf: Vec<u8> = Vec::with_capacity(1024);
+                        let mut buf: Vec<u8> = Vec::with_capacity(512);
                         // Sync write throttle: send every 300ms when stable
                         let mut last_sync_sent = Instant::now();
                         const SYNC_INTERVAL: Duration = Duration::from_millis(300);
@@ -144,19 +176,23 @@ pub async fn run_ble_client(
                         while let Some(data) = notification_stream.next().await {
                             buf.extend_from_slice(&data.value);
 
+                            // Use a read cursor so we only drain buf once per
+                            // notification instead of O(remaining) per packet.
+                            let mut pos = 0usize;
                             loop {
-                                let before_len = buf.len();
+                                let slice = &buf[pos..];
+                                let before = pos;
 
                                 // ── Framed path ──────────────────────────────
-                                if buf.len() >= 3
-                                    && buf[0] == crate::net::protocol::FRAME_MAGIC_LO
-                                    && buf[1] == crate::net::protocol::FRAME_MAGIC_HI
+                                if slice.len() >= 3
+                                    && slice[0] == crate::net::protocol::FRAME_MAGIC_LO
+                                    && slice[1] == crate::net::protocol::FRAME_MAGIC_HI
                                 {
-                                    let plen  = buf[2] as usize;
+                                    let plen  = slice[2] as usize;
                                     let total = 2 + 1 + plen + 2;
-                                    if buf.len() < total { break; }
+                                    if slice.len() < total { break; }
 
-                                    if let Some(packet) = ImuDataPacket::from_bytes(&buf[0..total]) {
+                                    if let Some(packet) = ImuDataPacket::from_bytes(&slice[0..total]) {
                                         let device_id = packet.id;
                                         let p_data = packet_to_data(&packet);
                                         send_packet(&tx_clone, &stats_clone, p_data);
@@ -164,7 +200,6 @@ pub async fn run_ble_client(
                                         // ── Sync write-back ───────────────────
                                         if let Some(ref sync_c) = sync_char_clone {
                                             if last_sync_sent.elapsed() >= SYNC_INTERVAL {
-                                                // Drop lock before await
                                                 let sync_payload = sync_quats_clone
                                                     .lock()
                                                     .ok()
@@ -177,26 +212,28 @@ pub async fn run_ble_client(
                                             }
                                         }
                                     }
-                                    let _ = buf.drain(0..total);
+                                    pos += total;
                                     continue;
                                 }
 
                                 // ── Legacy raw path ──────────────────────────
                                 let raw_size = crate::net::protocol::RAW_PACKET_SIZE;
-                                if buf.len() >= raw_size {
-                                    if let Some(packet) = ImuDataPacket::from_bytes(&buf[0..raw_size]) {
+                                if slice.len() >= raw_size {
+                                    if let Some(packet) = ImuDataPacket::from_bytes(&slice[0..raw_size]) {
                                         let p_data = packet_to_data(&packet);
                                         send_packet(&tx_clone, &stats_clone, p_data);
-                                        let _ = buf.drain(0..raw_size);
+                                        pos += raw_size;
                                         continue;
                                     } else {
-                                        let _ = buf.drain(0..1);
+                                        pos += 1;
                                         continue;
                                     }
                                 }
 
-                                if buf.len() == before_len { break; }
+                                if pos == before { break; }
                             }
+                            // Single drain per notification batch
+                            if pos > 0 { buf.drain(0..pos); }
                         }
 
                         info!("BLE 裝置 {} 斷線", p_clone.address());
@@ -204,9 +241,14 @@ pub async fn run_ble_client(
                             s.send(format!("ble_disconnected:{}", p_clone.address()))
                         });
                         let _ = p_clone.disconnect().await;
+
+                        // Allow the scan loop to rediscover and reconnect this
+                        // device instead of permanently treating it as "seen".
+                        if let Ok(mut set) = seen_ids_for_task.lock() {
+                            set.remove(&id_for_task);
+                        }
                     });
                 }
-            }
         }
     }
 }

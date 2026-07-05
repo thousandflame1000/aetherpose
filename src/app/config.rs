@@ -1,6 +1,5 @@
 use crate::imu::calibration::MagCalibration;
-use crate::app::types::{CameraProjectionMode, TrajectoryIntegrationMode};
-use crate::theme::{ThemeDef, ThemeVariant};
+use crate::app::types::TrajectoryIntegrationMode;
 use log::{error, info};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -16,10 +15,6 @@ pub struct AppConfig {
     pub prop_arm: f32,
     pub prop_spine: f32,
     pub tracker_assignments: HashMap<u8, u8>,
-    #[serde(default)]
-    pub mirror_view: bool,
-    #[serde(default)]
-    pub camera_projection: CameraProjectionMode,
     #[serde(default)]
     pub drift_correction: f32,
     #[serde(default)]
@@ -46,12 +41,6 @@ pub struct AppConfig {
     pub recorder_auto_save: bool,
     #[serde(default = "default_ui_lang")]
     pub ui_lang: String,
-    #[serde(default = "default_theme_variant")]
-    pub theme_variant: ThemeVariant,
-    #[serde(default)]
-    pub theme_custom: Option<ThemeDef>,
-    #[serde(default = "default_sidebar_width")]
-    pub sidebar_width: f32,
     #[serde(default = "default_zupt_window_size")]
     pub zupt_window_size: usize,
     #[serde(default = "default_zupt_enabled")]
@@ -68,45 +57,13 @@ pub struct AppConfig {
     pub serial_baud: u32,
 }
 
-fn default_leg_ratio() -> f32 {
-    0.9
-}
-
-fn default_ui_lang() -> String {
-    "zh".to_string()
-}
-
-fn default_sidebar_width() -> f32 {
-    180.0
-}
-
-fn default_theme_variant() -> ThemeVariant {
-    ThemeVariant::Dark
-}
-
-fn default_theme_custom() -> Option<ThemeDef> {
-    None
-}
-
-fn default_serial_baud() -> u32 {
-    115200
-}
-
-fn default_zupt_window_size() -> usize {
-    8
-}
-
-fn default_zupt_enabled() -> bool {
-    true
-}
-
-fn default_zupt_accel_var_threshold() -> f32 {
-    0.0005
-}
-
-fn default_zupt_gyro_threshold() -> f32 {
-    0.02
-}
+fn default_leg_ratio() -> f32 { 0.9 }
+fn default_ui_lang() -> String { "zh".to_string() }
+fn default_serial_baud() -> u32 { 115200 }
+fn default_zupt_window_size() -> usize { 8 }
+fn default_zupt_enabled() -> bool { true }
+fn default_zupt_accel_var_threshold() -> f32 { 0.0005 }
+fn default_zupt_gyro_threshold() -> f32 { 0.02 }
 
 impl Default for AppConfig {
     fn default() -> Self {
@@ -118,8 +75,6 @@ impl Default for AppConfig {
             prop_arm: 1.0,
             prop_spine: 1.0,
             tracker_assignments: HashMap::new(),
-            mirror_view: false,
-            camera_projection: CameraProjectionMode::Orthographic,
             drift_correction: 0.0,
             mag_calibrations: HashMap::new(),
             smoothing_min_cutoff: 3.0,
@@ -133,9 +88,6 @@ impl Default for AppConfig {
             recorder_flush_interval_ms: 500,
             recorder_auto_save: false,
             ui_lang: default_ui_lang(),
-            theme_variant: default_theme_variant(),
-            theme_custom: default_theme_custom(),
-            sidebar_width: default_sidebar_width(),
             serial_enabled: false,
             serial_port: None,
             serial_baud: default_serial_baud(),

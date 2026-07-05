@@ -1,5 +1,5 @@
 use super::*;
-use crate::app::types::GuiSnapshot;
+use crate::app::types::{GuiSnapshot, WsBone};
 use crate::ik::goals::Goal;
 
 impl BackendRuntime {
@@ -74,6 +74,22 @@ impl BackendRuntime {
             recorder_flush_interval_ms,
         ) = self.recorder_metrics();
 
+        let bones: Vec<WsBone> = self
+            .skeleton
+            .bones
+            .values()
+            .map(|b| WsBone {
+                id: b.id,
+                name: b.name.clone(),
+                parent_id: b.parent_id,
+                pos: [
+                    b.global_position.x,
+                    b.global_position.y,
+                    b.global_position.z,
+                ],
+            })
+            .collect();
+
         let snapshot = GuiSnapshot {
             packet_count: self.packet_count,
             trackers: self.trackers.clone(),
@@ -91,6 +107,7 @@ impl BackendRuntime {
             pending_shake_bone: self.pending_shake_bone,
             serial_running: self.serial_running(),
             serial_status_msg: self.current_serial_status(),
+            bones,
         };
 
         let _ = self.tx.send(GuiUpdate::Snapshot(snapshot));

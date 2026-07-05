@@ -100,8 +100,7 @@ struct BackendRuntime {
     tracker_consec_lost: HashMap<u8, u32>,
     /// Per-tracker consecutive good packet counter (resets on any lost packet)
     tracker_consec_good: HashMap<u8, u32>,
-    /// Per-tracker: true = currently using device Mahony (unstable link)
-    tracker_use_device_quat: HashMap<u8, bool>,
+
 }
 
 impl BackendRuntime {
@@ -187,7 +186,6 @@ impl BackendRuntime {
             sync_quats: Arc::new(Mutex::new(HashMap::new())),
             tracker_consec_lost: HashMap::new(),
             tracker_consec_good: HashMap::new(),
-            tracker_use_device_quat: HashMap::new(),
             config,
         }
     }

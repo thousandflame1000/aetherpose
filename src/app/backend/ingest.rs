@@ -1,9 +1,5 @@
 use super::*;
 
-/// Switch to device Mahony when consecutive lost packets >= this value (~30ms gap at 100Hz).
-const LOSS_FALLBACK_CONSECUTIVE: u32 = 3;
-/// Switch back to host EKF only after this many consecutive clean packets (hysteresis).
-const LOSS_RECOVER_CONSECUTIVE: u32 = 30;
 
 impl BackendRuntime {
     pub(super) fn ingest_udp_packets(&mut self) -> bool {
@@ -44,6 +40,7 @@ impl BackendRuntime {
     fn process_packet(&mut self, data: PacketData, source: ConnectionType) {
         self.packet_count += 1;
 
+        let is_new_tracker = !self.trackers.contains_key(&data.id);
         let assigned_bone = self.fusion.assigner.get_bone_id(data.id);
 
         // ── Update TrackerState ───────────────────────────────────────────────
@@ -97,19 +94,6 @@ impl BackendRuntime {
                 *consec_good += 1;
                 *consec_lost = 0;
             }
-            let cl = *consec_lost;
-            let cg = *consec_good;
-
-            // ── Switch logic (with hysteresis) ───────────────────────────────
-            let use_dev = self.tracker_use_device_quat.entry(data.id).or_insert(false);
-            if !*use_dev && cl >= LOSS_FALLBACK_CONSECUTIVE {
-                *use_dev = true;
-                info!("tracker #{}: link unstable ({} consec lost) → device Mahony", data.id, cl);
-            } else if *use_dev && cg >= LOSS_RECOVER_CONSECUTIVE {
-                *use_dev = false;
-                info!("tracker #{}: link stable ({} consec good) → host EKF", data.id, cg);
-            }
-
             tracker_state.received_packets += 1;
             *self.tracker_packet_counts.entry(data.id).or_insert(0) += 1;
             tracker_state.connection_type = source;
@@ -121,36 +105,13 @@ impl BackendRuntime {
             if let Some(mag)     = data.mag   { tracker_state.mag = Some(mag); }
         }
 
-        // ── EKF update (always runs; gives best estimate for stable link) ─────
-        let fused_quat = if let (Some(gyro), Some(accel)) = (data.gyro, data.accel) {
-            let dt = data.dt.unwrap_or(1.0 / 119.0);
-            let mag = data.mag.unwrap_or([0.0f32; 3]);
-            Some(self.fusion.update_ekf(data.id, gyro, accel, mag, dt))
-        } else {
-            None
-        };
+        // ── Quaternion: device Mahony only (computed on MCU at 119 Hz) ─────────
+        // No host-side EKF. Gyro bias is handled by Ki on the firmware side.
+        let selected_quat = data.quat;
 
-        // ── Adaptive quaternion selection ────────────────────────────────────
-        let use_device_quat = self.tracker_use_device_quat.get(&data.id).copied().unwrap_or(false);
-
-        // Rotation used for display + IK goals:
-        //   • link unstable (loss > 10%) → device Mahony quat (already smoothed on MCU)
-        //   • link stable               → host EKF quat (more accurate bias correction)
-        let selected_quat: Option<[f32; 4]> = if use_device_quat {
-            data.quat  // [x,y,z,w] from onboard Mahony (v2 packets only)
-                .or(fused_quat)  // fallback to EKF if device quat unavailable (v1 packet)
-        } else {
-            fused_quat
-                .or(data.quat)   // fallback to device quat if EKF not yet initialised
-        };
-
-        // When link is stable, push EKF result back so BLE task can sync device Mahony
-        if !use_device_quat {
-            if let Some(q) = fused_quat {
-                if let Ok(mut map) = self.sync_quats.lock() {
-                    map.insert(data.id, q);
-                }
-            }
+        // Feed device quat into fusion so IK/skeleton can use it.
+        if let Some(q) = selected_quat {
+            self.fusion.inject_quaternion(data.id, q);
         }
 
         // ── Stationarity ─────────────────────────────────────────────────────
@@ -200,5 +161,11 @@ impl BackendRuntime {
                 tracker.stationary = stationary;
                 tracker
             });
+
+        // ── Auto-assign on first packet from a new tracker ───────────────────
+        if is_new_tracker {
+            self.fusion.auto_assign(&self.net_trackers);
+            info!("New tracker #{} connected — auto-assigned", data.id);
+        }
     }
 }

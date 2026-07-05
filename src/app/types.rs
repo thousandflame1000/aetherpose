@@ -6,19 +6,6 @@ use nalgebra::Vector3;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum CameraProjectionMode {
-    Orthographic,
-    Perspective,
-}
-
-impl Default for CameraProjectionMode {
-    fn default() -> Self {
-        Self::Orthographic
-    }
-}
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct VrPoseData {
     pub pos: [f32; 3],
@@ -74,6 +61,18 @@ pub struct GuiSnapshot {
     pub pending_shake_bone: Option<u8>,
     pub serial_running: bool,
     pub serial_status_msg: Option<String>,
+    /// Processed skeleton joint positions (world space) after IK.
+    pub bones: Vec<WsBone>,
+}
+
+/// One skeleton joint — world-space position only (rotation sent separately if needed).
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct WsBone {
+    pub id: u8,
+    pub name: String,
+    pub parent_id: Option<u8>,
+    /// [x, y, z] in metres, world space (Y-up).
+    pub pos: [f32; 3],
 }
 
 pub enum GuiUpdate {
@@ -93,6 +92,7 @@ impl GuiUpdate {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum BackendCommand {
     SetIkSmoothness(f32),
     ResetYaw,
@@ -137,10 +137,105 @@ pub enum BackendCommand {
     CancelShakeAssign,
 }
 
-#[derive(PartialEq, Clone, Copy)]
-pub enum Tab {
-    Calibration,
-    Monitor,
-    Body,
-    System,
+// ── WebSocket wire types ──────────────────────────────────────────────────────
+
+/// Tracker state serialisable over JSON (replaces `std::time::Instant` with
+/// elapsed milliseconds).
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct WsTrackerState {
+    pub id: u8,
+    pub connection_type: String,
+    pub battery: f32,
+    pub rssi: i32,
+    pub accel: Option<[f32; 3]>,
+    /// Milliseconds since the last packet from this tracker.
+    pub last_update_ms: u64,
+    pub assigned_bone: Option<u8>,
+    pub tps: u32,
+    pub rotation: Option<[f32; 4]>,
+    pub stationary: bool,
+    pub last_sequence: u16,
+    pub received_packets: u64,
+    pub lost_packets: u64,
+    pub mag: Option<[f32; 3]>,
+    pub is_mag_calibrating: bool,
+}
+
+/// Snapshot of backend state broadcast to every connected WebSocket client.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct WsSnapshot {
+    pub packet_count: u64,
+    pub trackers: HashMap<u8, WsTrackerState>,
+    pub mag_calibrating_tracker_id: Option<u8>,
+    pub is_recording: bool,
+    pub recorder_dropped_count: u64,
+    pub recorder_write_errors: u64,
+    pub recorder_filename: Option<String>,
+    pub recorder_batch_size: usize,
+    pub recorder_flush_interval_ms: u64,
+    pub leg_ratio: f32,
+    pub floor_offset: f32,
+    pub pending_shake_bone: Option<u8>,
+    pub serial_running: bool,
+    pub serial_status_msg: Option<String>,
+    /// Processed skeleton joints after IK (world-space, Y-up, metres).
+    pub bones: Vec<WsBone>,
+}
+
+impl WsSnapshot {
+    pub fn from_snapshot(snap: GuiSnapshot) -> Self {
+        let trackers = snap
+            .trackers
+            .into_iter()
+            .map(|(k, v)| {
+                let ws = WsTrackerState {
+                    id: v.id,
+                    connection_type: format!("{:?}", v.connection_type),
+                    battery: v.battery,
+                    rssi: v.rssi,
+                    accel: v.accel,
+                    last_update_ms: v.last_update.elapsed().as_millis() as u64,
+                    assigned_bone: v.assigned_bone,
+                    tps: v.tps,
+                    rotation: v.rotation,
+                    stationary: v.stationary,
+                    last_sequence: v.last_sequence,
+                    received_packets: v.received_packets,
+                    lost_packets: v.lost_packets,
+                    mag: v.mag,
+                    is_mag_calibrating: v.is_mag_calibrating,
+                };
+                (k, ws)
+            })
+            .collect();
+
+        Self {
+            packet_count: snap.packet_count,
+            trackers,
+            mag_calibrating_tracker_id: snap.mag_calibrating_tracker_id,
+            is_recording: snap.is_recording,
+            recorder_dropped_count: snap.recorder_dropped_count,
+            recorder_write_errors: snap.recorder_write_errors,
+            recorder_filename: snap.recorder_filename,
+            recorder_batch_size: snap.recorder_batch_size,
+            recorder_flush_interval_ms: snap.recorder_flush_interval_ms,
+            leg_ratio: snap.leg_ratio,
+            floor_offset: snap.floor_offset,
+            pending_shake_bone: snap.pending_shake_bone,
+            serial_running: snap.serial_running,
+            serial_status_msg: snap.serial_status_msg,
+            bones: snap.bones,
+        }
+    }
+}
+
+/// Top-level envelope sent from Rust → Python.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(tag = "type", content = "data")]
+pub enum WsServerMessage {
+    Snapshot(WsSnapshot),
+    Status {
+        serial_running: bool,
+        serial_status_msg: Option<String>,
+    },
 }
