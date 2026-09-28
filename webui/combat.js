@@ -1,360 +1,8 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Aether Combat</title>
-<script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
-<style>
-  :root {
-    --bg: #090b0f;
-    --panel: rgba(14, 18, 24, 0.88);
-    --panel-solid: #10151c;
-    --line: #263241;
-    --line-hi: #3b4a5f;
-    --text: #eef1f6;
-    --muted: #9aa5b5;
-    --faint: #657284;
-    --blue: #64a4ff;
-    --cyan: #32d3c5;
-    --amber: #f5bd48;
-    --red: #f25c66;
-    --green: #42d983;
-    --ink: #051018;
-  }
-
-  * { box-sizing: border-box; }
-  html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font: 13px/1.4 "Segoe UI", Inter, system-ui, sans-serif;
-    -webkit-font-smoothing: antialiased;
-  }
-
-  #app { position: relative; width: 100vw; height: 100vh; background: #07090d; }
-  #arena { display: block; width: 100%; height: 100%; }
-
-  .hud {
-    position: absolute;
-    left: 18px;
-    right: 18px;
-    top: 14px;
-    display: grid;
-    grid-template-columns: 1fr auto 1fr;
-    gap: 16px;
-    align-items: start;
-    pointer-events: none;
-  }
-
-  .title {
-    display: flex;
-    align-items: center;
-    gap: 11px;
-    min-width: 0;
-  }
-
-  .brand {
-    font-size: clamp(18px, 2.2vw, 28px);
-    font-weight: 800;
-    letter-spacing: 0;
-    white-space: nowrap;
-  }
-
-  .chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    min-height: 28px;
-    padding: 5px 10px;
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    background: var(--panel);
-    color: var(--muted);
-    font-size: 12px;
-    font-weight: 650;
-    white-space: nowrap;
-  }
-
-  .dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--red);
-    flex: 0 0 auto;
-  }
-  .dot.on { background: var(--green); box-shadow: 0 0 0 3px rgba(66, 217, 131, 0.18); }
-
-  .scoreboard {
-    display: grid;
-    grid-template-columns: minmax(150px, 280px) minmax(92px, 132px) minmax(150px, 280px);
-    gap: 10px;
-    align-items: center;
-    justify-self: center;
-    min-width: min(740px, 100%);
-  }
-
-  .meter-box {
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    background: var(--panel);
-    padding: 8px 10px 9px;
-    min-width: 0;
-  }
-
-  .meter-head {
-    display: flex;
-    justify-content: space-between;
-    gap: 8px;
-    margin-bottom: 6px;
-    color: var(--muted);
-    font-size: 11px;
-    font-weight: 750;
-    text-transform: uppercase;
-  }
-
-  .bar {
-    position: relative;
-    height: 10px;
-    border-radius: 5px;
-    overflow: hidden;
-    background: #18202b;
-    outline: 1px solid rgba(255,255,255,0.03);
-  }
-
-  .bar > span {
-    position: absolute;
-    inset: 0 auto 0 0;
-    width: 100%;
-    border-radius: inherit;
-    background: var(--green);
-    transition: width 0.18s ease;
-  }
-
-  #enemy-hp { background: var(--red); }
-
-  .timer {
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    background: var(--panel);
-    text-align: center;
-    padding: 8px 12px;
-    min-width: 0;
-  }
-
-  .timer strong {
-    display: block;
-    font-size: clamp(22px, 3vw, 36px);
-    line-height: 1;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .timer span { color: var(--faint); font-size: 11px; font-weight: 700; text-transform: uppercase; }
-
-  .controls {
-    justify-self: end;
-    display: flex;
-    gap: 8px;
-    align-items: flex-start;
-    pointer-events: auto;
-  }
-
-  button {
-    height: 34px;
-    border: 1px solid var(--line-hi);
-    border-radius: 6px;
-    padding: 0 14px;
-    background: var(--panel-solid);
-    color: var(--text);
-    font: inherit;
-    font-size: 12px;
-    font-weight: 750;
-    cursor: pointer;
-  }
-  button:hover { border-color: var(--blue); }
-  button.primary { background: var(--blue); border-color: var(--blue); color: var(--ink); }
-  button.primary:hover { background: #82b6ff; }
-
-  .left-stack, .right-stack {
-    position: absolute;
-    top: 92px;
-    width: min(292px, calc(50vw - 24px));
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    pointer-events: none;
-  }
-  .left-stack { left: 18px; }
-  .right-stack { right: 18px; align-items: flex-end; }
-
-  .panel {
-    width: 100%;
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    background: var(--panel);
-    padding: 11px 12px;
-  }
-
-  .panel-label {
-    color: var(--faint);
-    font-size: 10px;
-    font-weight: 800;
-    text-transform: uppercase;
-    margin-bottom: 5px;
-  }
-
-  .big-readout {
-    color: var(--text);
-    font-size: clamp(18px, 2vw, 25px);
-    font-weight: 850;
-    line-height: 1.1;
-    min-height: 28px;
-  }
-
-  .sub-readout {
-    margin-top: 4px;
-    color: var(--muted);
-    font-size: 12px;
-    font-weight: 650;
-  }
-
-  .combo {
-    min-width: 140px;
-    text-align: right;
-  }
-
-  .combo .big-readout { color: var(--amber); }
-
-  .bottom {
-    position: absolute;
-    left: 18px;
-    right: 18px;
-    bottom: 14px;
-    display: flex;
-    justify-content: space-between;
-    align-items: end;
-    gap: 14px;
-    pointer-events: none;
-  }
-
-  .feed {
-    width: min(420px, 55vw);
-    min-height: 38px;
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    background: var(--panel);
-    padding: 9px 11px;
-    color: var(--muted);
-    font-weight: 650;
-  }
-
-  .legend {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-    justify-content: end;
-  }
-
-  .tag {
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    background: var(--panel);
-    padding: 7px 9px;
-    color: var(--muted);
-    font-size: 11px;
-    font-weight: 750;
-    text-transform: uppercase;
-  }
-  .tag.on { color: var(--green); border-color: rgba(66,217,131,0.45); }
-  .tag.warn { color: var(--amber); border-color: rgba(245,189,72,0.45); }
-
-  @media (max-width: 860px) {
-    .hud {
-      left: 10px;
-      right: 10px;
-      top: 10px;
-      grid-template-columns: 1fr;
-      gap: 8px;
-    }
-    .scoreboard {
-      grid-row: 2;
-      width: 100%;
-      min-width: 0;
-      grid-template-columns: 1fr 86px 1fr;
-    }
-    .controls { justify-self: start; }
-    .left-stack, .right-stack { top: 158px; width: calc(50vw - 18px); }
-    .bottom { left: 10px; right: 10px; bottom: 10px; align-items: stretch; }
-    .legend { display: none; }
-    .feed { width: 100%; }
-  }
-</style>
-</head>
-<body>
-<div id="app">
-  <canvas id="arena"></canvas>
-
-  <div class="hud">
-    <div class="title">
-      <div class="brand">Aether Combat</div>
-      <div class="chip"><span class="dot" id="ws-dot"></span><span id="ws-state">Connecting</span></div>
-    </div>
-
-    <div class="scoreboard">
-      <div class="meter-box">
-        <div class="meter-head"><span>Player</span><span id="player-hp-text">100</span></div>
-        <div class="bar"><span id="player-hp"></span></div>
-      </div>
-      <div class="timer"><strong id="round-time">90</strong><span>Round</span></div>
-      <div class="meter-box">
-        <div class="meter-head"><span>Enemy</span><span id="enemy-hp-text">100</span></div>
-        <div class="bar"><span id="enemy-hp"></span></div>
-      </div>
-    </div>
-
-    <div class="controls">
-      <button class="primary" id="start-btn">Start Round</button>
-      <button id="reset-btn">Reset</button>
-      <button id="recenter-btn">Recenter</button>
-    </div>
-  </div>
-
-  <div class="left-stack">
-    <div class="panel">
-      <div class="panel-label">Target</div>
-      <div class="big-readout" id="target-zone">Standby</div>
-      <div class="sub-readout" id="target-window">No round active</div>
-    </div>
-    <div class="panel">
-      <div class="panel-label">Incoming</div>
-      <div class="big-readout" id="incoming-zone">Clear</div>
-      <div class="sub-readout" id="incoming-window">No pressure</div>
-    </div>
-  </div>
-
-  <div class="right-stack">
-    <div class="panel combo">
-      <div class="panel-label">Combo</div>
-      <div class="big-readout" id="combo-readout">x0</div>
-      <div class="sub-readout" id="last-move">No strike</div>
-    </div>
-  </div>
-
-  <div class="bottom">
-    <div class="feed" id="event-feed">Waiting for SMPL bridge.</div>
-    <div class="legend">
-      <div class="tag" id="tag-guard">Guard</div>
-      <div class="tag" id="tag-crouch">Crouch</div>
-      <div class="tag" id="tag-lean">Lean</div>
-      <div class="tag" id="tag-live">Pose</div>
-      <div class="tag" id="tag-smpl">SMPL</div>
-    </div>
-  </div>
-</div>
-
-<script>
-(() => {
-  const MESH_WS_URL = "ws://127.0.0.1:9010/";
+// Aether Combat: the combat mode of the Aetherpose web UI (index.html).
+// The page owns the single mesh_bridge connection and forwards its messages
+// here; this module keeps its own arena scene and only simulates and renders
+// while the Combat tab is open.
+window.AetherCombat = (() => {
   const ROUND_SECONDS = 90;
   const SMPL_RENDER_SCALE = 0.96;
   const SMPL_FLOOR_LIFT = 0.97;
@@ -441,7 +89,8 @@
   let latestSmplJoints = null;
   let smplLive = false;
   let smplLastAt = 0;
-  let meshWs = null;
+  let sendToBridge = null;  // set by the page; sends a JSON command to mesh_bridge
+  let active = false;       // simulate/render only while the Combat tab is open
   let poseStateOk = null;
 
   const enemyGroup = new THREE.Group();
@@ -655,6 +304,7 @@
   function resize() {
     const w = canvas.clientWidth;
     const h = canvas.clientHeight;
+    if (!w || !h) return;  // hidden (display: none) while another tab is open
     if (w === renderWidth && h === renderHeight) return;
     renderWidth = w;
     renderHeight = h;
@@ -809,34 +459,15 @@
     };
   }
 
-  function connectMeshBridge() {
-    meshWs = new WebSocket(MESH_WS_URL);
-    meshWs.binaryType = "arraybuffer";
-    meshWs.onopen = () => {
-      setFeed("SMPL bridge connected.");
-    };
-    meshWs.onmessage = (event) => {
-      try {
-        if (event.data instanceof ArrayBuffer) {
-          updateSmplMeshFlat(new Float32Array(event.data));
-          return;
-        }
-        const msg = JSON.parse(event.data);
-        if (msg.faces) setSmplFaces(msg.faces);
-        if (msg.joints) updateSmplJoints(msg.joints);
-        if (msg.verts) updateSmplMesh(msg.verts);
-      } catch (err) {
-        console.warn("SMPL bridge packet failed", err);
-      }
-    };
-    meshWs.onclose = () => {
-      $("tag-smpl").classList.remove("on");
-      smplLive = false;
-      clearSmplPoseState();
-      setPoseState(false);
-      setTimeout(connectMeshBridge, 1800);
-    };
-    meshWs.onerror = () => meshWs.close();
+  function onMeshOpen() {
+    setFeed("SMPL bridge connected.");
+  }
+
+  function onMeshClose() {
+    $("tag-smpl").classList.remove("on");
+    smplLive = false;
+    clearSmplPoseState();
+    setPoseState(false);
   }
 
   function smplJointLocal(smplIndex) {
@@ -1349,8 +980,7 @@
   $("start-btn").addEventListener("click", startRound);
   $("reset-btn").addEventListener("click", resetRound);
   $("recenter-btn").addEventListener("click", () => {
-    if (meshWs && meshWs.readyState === WebSocket.OPEN) {
-      meshWs.send(JSON.stringify({ cmd: "reset_origin" }));
+    if (sendToBridge && sendToBridge({ cmd: "reset_origin" })) {
       setFeed("Player position reset.");
     } else {
       setFeed("SMPL bridge not connected.");
@@ -1360,6 +990,7 @@
   let last = nowSec();
   let lastRenderAt = 0;
   function frame() {
+    if (!active) return;
     requestAnimationFrame(frame);
     const t = nowSec();
     if (t - lastRenderAt < 1 / MAX_RENDER_FPS) return;
@@ -1374,12 +1005,32 @@
     renderer.render(scene, camera);
   }
 
+  function setActive(on) {
+    if (on === active) return;
+    active = on;
+    if (on) {
+      // Velocities from a stale previous sample would read as a fast strike.
+      pose.prev.clear();
+      pose.vel.clear();
+      last = nowSec();
+      frame();
+    } else if (game.running) {
+      finishRound("Round stopped.");
+    }
+  }
+
   resize();
   setTargetVisual("head");
   updateHud();
-  connectMeshBridge();
-  frame();
+
+  return {
+    setActive,
+    setSender(fn) { sendToBridge = fn; },
+    onMeshOpen,
+    onMeshClose,
+    onFaces: setSmplFaces,
+    onJoints(joints) { if (active) updateSmplJoints(joints); },
+    onVertsFlat(flat) { if (active) updateSmplMeshFlat(flat); },
+    onVerts(verts) { if (active) updateSmplMesh(verts); },
+  };
 })();
-</script>
-</body>
-</html>

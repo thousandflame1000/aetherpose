@@ -191,6 +191,7 @@
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: var(--border-hi); border-radius: 4px; }
 </style>
+<link rel="stylesheet" href="combat.css">
 </head>
 <body>
 
@@ -210,6 +211,67 @@
   </div>
   <div id="game-result"></div>
   <div id="hint">Drag to orbit &middot; scroll to zoom &middot; right-drag to pan</div>
+
+  <!-- Combat mode (combat.js); covers the control view while the Combat tab is open -->
+  <div id="combat-view">
+    <canvas id="arena"></canvas>
+
+    <div class="hud">
+      <div class="title">
+        <div class="chip"><span class="dot" id="ws-dot"></span><span id="ws-state">Connecting</span></div>
+      </div>
+
+      <div class="scoreboard">
+        <div class="meter-box">
+          <div class="meter-head"><span>Player</span><span id="player-hp-text">100</span></div>
+          <div class="bar"><span id="player-hp"></span></div>
+        </div>
+        <div class="timer"><strong id="round-time">90</strong><span>Round</span></div>
+        <div class="meter-box">
+          <div class="meter-head"><span>Enemy</span><span id="enemy-hp-text">100</span></div>
+          <div class="bar"><span id="enemy-hp"></span></div>
+        </div>
+      </div>
+
+      <div class="controls">
+        <button class="primary" id="start-btn">Start Round</button>
+        <button id="reset-btn">Reset</button>
+        <button id="recenter-btn">Recenter</button>
+      </div>
+    </div>
+
+    <div class="left-stack">
+      <div class="panel">
+        <div class="panel-label">Target</div>
+        <div class="big-readout" id="target-zone">Standby</div>
+        <div class="sub-readout" id="target-window">No round active</div>
+      </div>
+      <div class="panel">
+        <div class="panel-label">Incoming</div>
+        <div class="big-readout" id="incoming-zone">Clear</div>
+        <div class="sub-readout" id="incoming-window">No pressure</div>
+      </div>
+    </div>
+
+    <div class="right-stack">
+      <div class="panel combo">
+        <div class="panel-label">Combo</div>
+        <div class="big-readout" id="combo-readout">x0</div>
+        <div class="sub-readout" id="last-move">No strike</div>
+      </div>
+    </div>
+
+    <div class="bottom">
+      <div class="feed" id="event-feed">Waiting for SMPL bridge.</div>
+      <div class="legend">
+        <div class="tag" id="tag-guard">Guard</div>
+        <div class="tag" id="tag-crouch">Crouch</div>
+        <div class="tag" id="tag-lean">Lean</div>
+        <div class="tag" id="tag-live">Pose</div>
+        <div class="tag" id="tag-smpl">SMPL</div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <div id="panel">
@@ -223,6 +285,7 @@
     <div class="tab" data-tab="mon">Monitor</div>
     <div class="tab" data-tab="body">Body</div>
     <div class="tab" data-tab="sys">System</div>
+    <div class="tab" data-tab="combat">Combat</div>
   </div>
 
   <div id="content">
@@ -380,9 +443,23 @@
       </div>
     </div>
 
+    <!-- Combat -->
+    <div class="page" id="page-combat">
+      <div class="card">
+        <div class="card-hdr">Aether Combat</div>
+        <div class="card-body">
+          <div class="hint">Fight the sparring bot with your tracked body. Start a round from the arena's top bar.</div>
+          <div class="hint"><b>Attack:</b> punch (fast hand, at least chest height) or kick (fast foot off the floor) into the highlighted zone: head, body or legs.</div>
+          <div class="hint"><b>Defend:</b> high strike &rarr; guard (both hands up by the head) or crouch; body shot &rarr; guard; flank hit &rarr; lean sideways.</div>
+          <div class="hint">Recenter resets your position in the arena. Leaving this tab stops the round.</div>
+        </div>
+      </div>
+    </div>
+
   </div>
 </div>
 
+<script src="combat.js"></script>
 <script>
 // ── constants (mirrors src/app/types.rs / the old Python frontend) ────────
 const WS_URL = 'ws://127.0.0.1:9009/ws';
@@ -446,8 +523,11 @@ function resizeRenderer() {
 }
 window.addEventListener('resize', resizeRenderer);
 
+// While Combat mode is open its arena covers this view, so skip drawing it.
+let combatMode = false;
 function animate() {
   requestAnimationFrame(animate);
+  if (combatMode) return;
   controls.update();
   resizeRenderer();
   renderer.render(scene, camera);
@@ -504,15 +584,20 @@ function setSmplFaces(faces) {
 const SMPL_VERT0_MINUS_JOINT0 = new THREE.Vector3(0.05000331, 0.7557691, 0.06511144);
 
 function updateSmplMesh(verts) {
-  if (!verts || !verts.length || !smplFaces) return;
-  const positions = new Float32Array(verts.length * 3);
+  if (!verts || !verts.length) return;
+  updateSmplMeshFlat(Float32Array.from(verts.flat()));
+}
+// flat = [x0,y0,z0, x1,y1,z1, ...], as sent in mesh_bridge's binary frames.
+function updateSmplMeshFlat(flat) {
+  if (!flat || !flat.length || !smplFaces) return;
+  const positions = new Float32Array(flat.length);
   const ox = TP_OFFSET.x + SMPL_VERT0_MINUS_JOINT0.x;
   const oy = TP_OFFSET.y + SMPL_VERT0_MINUS_JOINT0.y;
   const oz = TP_OFFSET.z + SMPL_VERT0_MINUS_JOINT0.z;
-  for (let i = 0; i < verts.length; i++) {
-    positions[i*3+0] = verts[i][0] + ox;
-    positions[i*3+1] = verts[i][1] + oy;
-    positions[i*3+2] = verts[i][2] + oz;
+  for (let i = 0; i < flat.length; i += 3) {
+    positions[i]   = flat[i]   + ox;
+    positions[i+1] = flat[i+1] + oy;
+    positions[i+2] = flat[i+2] + oz;
   }
   if (!smplMesh) {
     const geo = new THREE.BufferGeometry();
@@ -557,25 +642,41 @@ function tpStatusDisplay(status) {
   return ['Demo Playback', '#8db4ff'];
 }
 
+// One mesh_bridge connection feeds both this control view and Combat mode.
+// mesh_bridge sends vertices as raw float32 binary frames and everything
+// else (faces, joints, status) as JSON.
 let meshWs = null;
 function connectMeshBridge() {
   meshWs = new WebSocket(MESH_WS_URL);
+  meshWs.binaryType = 'arraybuffer';
+  meshWs.onopen = () => AetherCombat.onMeshOpen();
   meshWs.onmessage = (e) => {
     try {
+      if (e.data instanceof ArrayBuffer) {
+        const flat = new Float32Array(e.data);
+        if (!combatMode) updateSmplMeshFlat(flat);
+        AetherCombat.onVertsFlat(flat);
+        return;
+      }
       const m = JSON.parse(e.data);
-      if (m.faces)  setSmplFaces(m.faces);
-      if (m.verts)  updateSmplMesh(m.verts);
-      if (m.joints) updateTpSkeleton(m.joints);
+      if (m.faces)  { setSmplFaces(m.faces); AetherCombat.onFaces(m.faces); }
+      if (m.verts)  { updateSmplMesh(m.verts); AetherCombat.onVerts(m.verts); }
+      if (m.joints) { updateTpSkeleton(m.joints); AetherCombat.onJoints(m.joints); }
       if (m.status) {
         const [text, color] = tpStatusDisplay(m.status);
         const el = document.getElementById('tp-status');
         el.textContent = text; el.style.color = color;
       }
-    } catch (_) {}
+    } catch (err) { console.warn('mesh_bridge packet failed', err); }
   };
-  meshWs.onclose = () => setTimeout(connectMeshBridge, 2000);
+  meshWs.onclose = () => { AetherCombat.onMeshClose(); setTimeout(connectMeshBridge, 2000); };
   meshWs.onerror = () => meshWs.close();
 }
+AetherCombat.setSender((msg) => {
+  if (!meshWs || meshWs.readyState !== WebSocket.OPEN) return false;
+  meshWs.send(JSON.stringify(msg));
+  return true;
+});
 
 // ── Reach-target mini-game — pure IMU interaction, no mouse/keyboard ──────
 // A timed round: reach out with a tracked hand (real or demo-playback) to
@@ -853,18 +954,28 @@ function applySerial() {
 }
 
 // ── Tabs ───────────────────────────────────────────────────────────────────
+function setCombatMode(on) {
+  if (on === combatMode) return;
+  combatMode = on;
+  if (on && game.state === 'playing') endGame();  // one game at a time
+  document.body.classList.toggle('combat-mode', on);
+  AetherCombat.setActive(on);
+  history.replaceState(null, '', on ? '#combat' : location.pathname + location.search);
+}
+function selectTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === 'page-' + name));
+  setCombatMode(name === 'combat');
+}
 document.querySelectorAll('.tab').forEach(tabEl => {
-  tabEl.addEventListener('click', () => {
-    document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t === tabEl));
-    const name = tabEl.dataset.tab;
-    document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === 'page-' + name));
-  });
+  tabEl.addEventListener('click', () => selectTab(tabEl.dataset.tab));
 });
 
 // ── Init ───────────────────────────────────────────────────────────────────
 resizeRenderer();
 connect();
 connectMeshBridge();
+if (location.hash === '#combat') selectTab('combat');
 </script>
 </body>
 </html>

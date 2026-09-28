@@ -1,0 +1,278 @@
+/* Aether Combat mode of the Aetherpose web UI. Every rule is scoped to
+   #combat-view so it cannot restyle the control UI (both use .dot, .primary). */
+#combat-view {
+  position: absolute; inset: 0; z-index: 5; display: none;
+  background: #07090d;
+  font: 13px/1.4 "Segoe UI", Inter, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+body.combat-mode #combat-view { display: block; }
+#combat-view { container-type: size; }
+
+  #combat-view {
+    color: var(--text);
+    --bg: #090b0f;
+    --panel: rgba(14, 18, 24, 0.88);
+    --panel-solid: #10151c;
+    --line: #263241;
+    --line-hi: #3b4a5f;
+    --text: #eef1f6;
+    --muted: #9aa5b5;
+    --faint: #657284;
+    --blue: #64a4ff;
+    --cyan: #32d3c5;
+    --amber: #f5bd48;
+    --red: #f25c66;
+    --green: #42d983;
+    --ink: #051018;
+  }
+
+
+  #combat-view #arena { display: block; width: 100%; height: 100%; }
+
+  #combat-view .hud {
+    position: absolute;
+    left: 18px;
+    right: 18px;
+    top: 14px;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 16px;
+    align-items: start;
+    pointer-events: none;
+  }
+
+  #combat-view .title {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    min-width: 0;
+  }
+
+  #combat-view .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 28px;
+    padding: 5px 10px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--panel);
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 650;
+    white-space: nowrap;
+  }
+
+  #combat-view .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--red);
+    flex: 0 0 auto;
+  }
+  #combat-view .dot.on { background: var(--green); box-shadow: 0 0 0 3px rgba(66, 217, 131, 0.18); }
+
+  #combat-view .scoreboard {
+    display: grid;
+    grid-template-columns: minmax(120px, 240px) minmax(80px, 110px) minmax(120px, 240px);
+    gap: 10px;
+    align-items: center;
+    justify-self: center;
+    min-width: 0;
+  }
+
+  #combat-view .meter-box {
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--panel);
+    padding: 8px 10px 9px;
+    min-width: 0;
+  }
+
+  #combat-view .meter-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 6px;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 750;
+    text-transform: uppercase;
+  }
+
+  #combat-view .bar {
+    position: relative;
+    height: 10px;
+    border-radius: 5px;
+    overflow: hidden;
+    background: #18202b;
+    outline: 1px solid rgba(255,255,255,0.03);
+  }
+
+  #combat-view .bar > span {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 100%;
+    border-radius: inherit;
+    background: var(--green);
+    transition: width 0.18s ease;
+  }
+
+  #combat-view #enemy-hp { background: var(--red); }
+
+  #combat-view .timer {
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--panel);
+    text-align: center;
+    padding: 8px 12px;
+    min-width: 0;
+  }
+
+  #combat-view .timer strong {
+    display: block;
+    font-size: clamp(22px, 3vw, 36px);
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+
+  #combat-view .timer span { color: var(--faint); font-size: 11px; font-weight: 700; text-transform: uppercase; }
+
+  #combat-view .controls {
+    justify-self: end;
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    pointer-events: auto;
+  }
+
+  #combat-view button {
+    height: 34px;
+    border: 1px solid var(--line-hi);
+    border-radius: 6px;
+    padding: 0 14px;
+    background: var(--panel-solid);
+    color: var(--text);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 750;
+    cursor: pointer;
+  }
+  #combat-view button:hover { border-color: var(--blue); }
+  #combat-view button.primary { background: var(--blue); border-color: var(--blue); color: var(--ink); }
+  #combat-view button.primary:hover { background: #82b6ff; }
+
+  #combat-view .left-stack, #combat-view .right-stack {
+    position: absolute;
+    top: 92px;
+    width: min(292px, calc(50vw - 24px));
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    pointer-events: none;
+  }
+  #combat-view .left-stack { left: 18px; }
+  #combat-view .right-stack { right: 18px; align-items: flex-end; }
+
+  #combat-view .panel {
+    width: 100%;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--panel);
+    padding: 11px 12px;
+  }
+
+  #combat-view .panel-label {
+    color: var(--faint);
+    font-size: 10px;
+    font-weight: 800;
+    text-transform: uppercase;
+    margin-bottom: 5px;
+  }
+
+  #combat-view .big-readout {
+    color: var(--text);
+    font-size: clamp(18px, 2vw, 25px);
+    font-weight: 850;
+    line-height: 1.1;
+    min-height: 28px;
+  }
+
+  #combat-view .sub-readout {
+    margin-top: 4px;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 650;
+  }
+
+  #combat-view .combo {
+    min-width: 140px;
+    text-align: right;
+  }
+
+  #combat-view .combo .big-readout { color: var(--amber); }
+
+  #combat-view .bottom {
+    position: absolute;
+    left: 18px;
+    right: 18px;
+    bottom: 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: end;
+    gap: 14px;
+    pointer-events: none;
+  }
+
+  #combat-view .feed {
+    width: min(420px, 55vw);
+    min-height: 38px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--panel);
+    padding: 9px 11px;
+    color: var(--muted);
+    font-weight: 650;
+  }
+
+  #combat-view .legend {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: end;
+  }
+
+  #combat-view .tag {
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--panel);
+    padding: 7px 9px;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 750;
+    text-transform: uppercase;
+  }
+  #combat-view .tag.on { color: var(--green); border-color: rgba(66,217,131,0.45); }
+  #combat-view .tag.warn { color: var(--amber); border-color: rgba(245,189,72,0.45); }
+
+  @container (max-width: 860px) {
+    #combat-view .hud {
+      left: 10px;
+      right: 10px;
+      top: 10px;
+      grid-template-columns: 1fr;
+      gap: 8px;
+    }
+    #combat-view .scoreboard {
+      grid-row: 2;
+      width: 100%;
+      min-width: 0;
+      grid-template-columns: 1fr 86px 1fr;
+    }
+    #combat-view .controls { justify-self: start; }
+    #combat-view .left-stack, #combat-view .right-stack { top: 158px; width: calc(50vw - 18px); }
+    #combat-view .bottom { left: 10px; right: 10px; bottom: 10px; align-items: stretch; }
+    #combat-view .legend { display: none; }
+    #combat-view .feed { width: 100%; }
+  }

@@ -72,14 +72,13 @@ cd aetherpose\frontend
 ..\.venv\Scripts\python.exe main.py
 ```
 
-**子專案：Aether Combat（瀏覽器 3D 人體畫面）**
-
-在前端右側面板的 **Apps** 分頁按「Open Aether Combat」，或直接執行：
+**瀏覽器主控介面（含 Aether Combat 模式）**
 ```powershell
-cd aetherpose\combat
-.\run.ps1
+cd aetherpose\webui
+.\run.ps1            # 主控介面
+.\run.ps1 -Combat    # 直接進入 Combat 模式
 ```
-會自動啟動後端與 mesh_bridge（若尚未執行），詳見 `combat/README.md`。
+會自動啟動後端與 mesh_bridge（若尚未執行）。桌面前端的 **Apps** 分頁「Open Aether Combat」也是呼叫這個腳本。詳見 `webui/README.md`。
 
 ---
 

@@ -1,7 +1,6 @@
 # Stops the services started by run.ps1, found by their listening ports.
-# Note: webui/index.html also uses the backend (9009) and mesh_bridge (9010).
 param(
-    [int]$Port = 18081,
+    [int]$Port = 18080,
     [switch]$KeepBackend
 )
 $ports = @($Port, 9010)

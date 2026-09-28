@@ -1,17 +1,18 @@
-# Aether Combat launcher (keep this file ASCII: Windows PowerShell 5.1 misreads
-# BOM-less UTF-8). Starts only the services that are not already running:
+# Aetherpose web UI launcher (keep this file ASCII: Windows PowerShell 5.1
+# misreads BOM-less UTF-8). Starts only the services that are not running yet:
 #   aetherpose.exe  (trackers over BLE -> ws://127.0.0.1:9009)
 #   mesh_bridge.py  (TransPose body mesh -> ws://127.0.0.1:9010)
 #   http.server     (this folder -> http://127.0.0.1:<Port>/)
-# Stop them again with .\stop.ps1
+# -Combat opens the page directly in Combat mode. Stop with .\stop.ps1
 param(
-    [int]$Port = 18081,
+    [int]$Port = 18080,
+    [switch]$Combat,
     [switch]$NoBrowser
 )
 $ErrorActionPreference = 'Stop'
 
-$combat = $PSScriptRoot
-$root = Split-Path $combat -Parent
+$webui = $PSScriptRoot
+$root = Split-Path $webui -Parent
 $backend = Join-Path $root 'target\release\aetherpose.exe'
 $python = @("$root\..\.venv\Scripts\python.exe", "$root\.venv\Scripts\python.exe") |
     Where-Object { Test-Path $_ } | Select-Object -First 1
@@ -32,9 +33,9 @@ function Wait-Listening([int]$p, [int]$seconds, [string]$name, [string]$log) {
 }
 
 $viewer = Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
-    Where-Object { $_.CommandLine -match 'imu_axes\.py' }
+    Where-Object { $_.CommandLine -match 'imu_axes\.py' -and $_.CommandLine -notmatch '--ws' }
 if ($viewer) {
-    Write-Warning 'tools/imu_axes.py is running and may hold a tracker''s BLE link; close it so the backend can connect.'
+    Write-Warning 'tools/imu_axes.py is connected over BLE and may hold a tracker; close it so the backend can connect.'
 }
 
 if (Test-Listening 9009) {
@@ -61,13 +62,13 @@ if (Test-Listening 9010) {
 if (Test-Listening $Port) {
     Write-Host "page server : port $Port already in use (assuming it serves this folder)"
 } else {
-    $log = Join-Path $combat 'http_server.err.log'
-    Start-Process -FilePath $python -ArgumentList '-m', 'http.server', $Port, '--bind', '127.0.0.1', '--directory', "`"$combat`"" `
-        -WindowStyle Hidden -RedirectStandardOutput (Join-Path $combat 'http_server.out.log') -RedirectStandardError $log
+    $log = Join-Path $webui 'http_server.err.log'
+    Start-Process -FilePath $python -ArgumentList '-m', 'http.server', $Port, '--bind', '127.0.0.1', '--directory', "`"$webui`"" `
+        -WindowStyle Hidden -RedirectStandardOutput (Join-Path $webui 'http_server.out.log') -RedirectStandardError $log
     Wait-Listening $Port 10 'Page server' $log
     Write-Host "page server : started ($Port)"
 }
 
-$url = "http://127.0.0.1:$Port/"
-Write-Host "Aether Combat: $url"
+$url = "http://127.0.0.1:$Port/" + $(if ($Combat) { '#combat' } else { '' })
+Write-Host "Aetherpose: $url"
 if (-not $NoBrowser) { Start-Process $url }
