@@ -4,7 +4,7 @@ Aetherpose — Open3D GUI frontend (single window, no browser dependency)
   Right : control panel — Calibration / Monitor / Body / System tabs
 """
 
-import os, time, threading, json, math
+import os, time, threading, json, math, subprocess
 import numpy as np
 import open3d as o3d
 import open3d.visualization.gui      as gui
@@ -519,6 +519,22 @@ class App:
         sys_t.add_child(sec_ser)
         tabs.add_tab("System", sys_t)
 
+        # ────────────────────────────────────────────────────────────────────
+        # TAB: Apps — sub-projects that run on top of the same backend
+        # ────────────────────────────────────────────────────────────────────
+        apps = gui.ScrollableVert(sp, gui.Margins(p, sp, p, sp))
+        apps.background_color = pal["bg"]
+        sec_combat = card("Aether Combat")
+        combat_info = gui.Label("Browser 3D body view (combat/)")
+        combat_info.text_color = gui.Color(0.50, 0.53, 0.58)
+        sec_combat.add_child(combat_info)
+        b_combat = btn("Open Aether Combat", "accent"); b_combat.set_on_clicked(self._on_open_combat)
+        sec_combat.add_child(b_combat)
+        self._combat_st_lbl = gui.Label(""); self._combat_st_lbl.text_color = gui.Color(0.50,0.53,0.58)
+        sec_combat.add_child(self._combat_st_lbl)
+        apps.add_child(sec_combat)
+        tabs.add_tab("Apps", apps)
+
         panel.add_child(tabs)
         self._panel = panel
         self.window.add_child(panel)
@@ -650,6 +666,31 @@ class App:
                 "flush_interval_ms":int(self._rec_flush.text_value),
             }})
         except: pass
+
+    def _on_open_combat(self):
+        """Launch combat/run.ps1, which starts mesh_bridge and the page server
+        if they are not running yet and opens the browser. It can take up to a
+        minute while mesh_bridge loads TransPose, so it runs off the UI thread."""
+        script = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                              "combat", "run.ps1")
+        self._combat_st_lbl.text = "Starting..."
+
+        def launch():
+            try:
+                res = subprocess.run(
+                    ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script],
+                    capture_output=True, text=True, timeout=180,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                out = (res.stdout.strip() or res.stderr.strip()).splitlines()
+                msg = "Opened in browser" if res.returncode == 0 else f"Failed: {out[-1] if out else res.returncode}"
+            except Exception as e:
+                msg = f"Failed: {e}"
+
+            def show():
+                self._combat_st_lbl.text = msg
+            self._app.post_to_main_thread(self.window, show)
+
+        threading.Thread(target=launch, daemon=True, name="combat-launch").start()
 
     def _on_serial_apply(self):
         self._cmd({"SetSerialConfig": {

@@ -72,6 +72,15 @@ cd aetherpose\frontend
 ..\.venv\Scripts\python.exe main.py
 ```
 
+**子專案：Aether Combat（瀏覽器 3D 人體畫面）**
+
+在前端右側面板的 **Apps** 分頁按「Open Aether Combat」，或直接執行：
+```powershell
+cd aetherpose\combat
+.\run.ps1
+```
+會自動啟動後端與 mesh_bridge（若尚未執行），詳見 `combat/README.md`。
+
 ---
 
 ## 確認連線成功
