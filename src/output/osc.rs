@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use crate::skeleton::SkeletonModel;
 use nalgebra::{UnitQuaternion, Vector3};
 use rosc::{encoder, OscMessage, OscPacket, OscType};

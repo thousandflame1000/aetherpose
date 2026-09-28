@@ -9,7 +9,7 @@ T-pose 定義（Y-up world frame）：
   python make_tpose_mask.py
   → 生成 tpose_mask.npz
 
-在 main_o3d.py 裡替換 DIP mask 載入的部分即可。
+main.py 會自動優先載入 tpose_mask.npz（見 TransPoseRunner._init）。
 """
 
 import numpy as np

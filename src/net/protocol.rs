@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::mem;
 
 // Frame magic for framed packets
@@ -42,7 +40,6 @@ struct RawImuPacketV2 {
 }
 
 pub const RAW_PACKET_SIZE: usize = mem::size_of::<RawImuPacketV1>();
-pub const RAW_PACKET_V2_SIZE: usize = mem::size_of::<RawImuPacketV2>();
 
 /// Safe, aligned packet used throughout Rust code.
 /// `quat` is `Some` only when received from a v2 (0x04) firmware packet.
@@ -173,9 +170,6 @@ fn crc16_ccitt_false(data: &[u8]) -> u16 {
     }
     crc
 }
-
-// ── Legacy alias ──────────────────────────────────────────────────────────────
-pub type FullDataPacket = ImuDataPacket;
 
 // ── Sync packet: host → device (16 bytes, [x,y,z,w] floats) ────────────────
 /// Encode an EKF quaternion [x,y,z,w] as 16 raw bytes for BLE write.

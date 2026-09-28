@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use crate::fusion::assignment::TrackerBoneAssigner;
 use crate::fusion::{confidence, weighting};
 use crate::ik::goals::Goal;
@@ -21,7 +19,7 @@ pub struct FusionEngine {
     pub assigner: TrackerBoneAssigner,
     pub calibration_offsets: HashMap<u8, UnitQuaternion<f32>>,
     /// Cached quaternions from device (injected directly from firmware Madgwick).
-    ekf_quaternions: HashMap<u8, UnitQuaternion<f32>>,
+    device_quaternions: HashMap<u8, UnitQuaternion<f32>>,
     filters: HashMap<u8, OneEuroFilter>,
     imu_trajectory: ImuTrajectoryEstimator,
     pub smoothing_min_cutoff: f32,
@@ -29,7 +27,6 @@ pub struct FusionEngine {
     pub drift_correction: f32,
     pub imu_position_weight: f32,
     pub zupt_enabled: bool,
-    _zupt_offsets: HashMap<u8, UnitQuaternion<f32>>,
     zupt_detectors: HashMap<u8, ZuptDetector>,
     zupt_window_size: usize,
     zupt_accel_var_threshold: f32,
@@ -49,17 +46,12 @@ pub struct AuthoritativePose {
     pub rotation: UnitQuaternion<f32>,
 }
 
-pub(crate) struct MockTracker {
-    pub position: Vector3<f32>,
-    pub rotation: UnitQuaternion<f32>,
-}
-
 impl FusionEngine {
     pub fn new() -> Self {
         Self {
             assigner: TrackerBoneAssigner::new(),
             calibration_offsets: HashMap::new(),
-            ekf_quaternions: HashMap::new(),
+            device_quaternions: HashMap::new(),
             filters: HashMap::new(),
             imu_trajectory: ImuTrajectoryEstimator::new(),
             smoothing_min_cutoff: 1.0,
@@ -67,7 +59,6 @@ impl FusionEngine {
             drift_correction: 0.0,
             imu_position_weight: DEFAULT_IMU_POSITION_WEIGHT,
             zupt_enabled: true,
-            _zupt_offsets: HashMap::new(),
             zupt_detectors: HashMap::new(),
             zupt_window_size: 8,
             zupt_accel_var_threshold: 0.0005,
@@ -137,8 +128,8 @@ impl FusionEngine {
                 continue;
             };
 
-            // Use EKF-fused quaternion computed in update_ekf() (called from ingest).
-            let Some(raw_rotation) = self.ekf_quaternions.get(tracker_id).copied() else {
+            // Use the device quaternion cached during ingest.
+            let Some(raw_rotation) = self.device_quaternions.get(tracker_id).copied() else {
                 continue;
             };
 
@@ -160,11 +151,7 @@ impl FusionEngine {
             let final_rotation =
                 self.apply_drift_correction(bone_id, calibrated_rotation, quest_head);
 
-            if let Some(goal) = self.make_pole_goal(skeleton, bone_id, final_rotation, weight) {
-                generated_goals.push(goal);
-            } else {
-                generated_goals.push(self.make_rotation_goal(bone_id, final_rotation, weight));
-            }
+            generated_goals.push(self.make_rotation_goal(bone_id, final_rotation, weight));
 
             if let (Some(accel), Some(anchor_position)) =
                 (tracker.accel, skeleton.get_joint_position(bone_id))
@@ -186,8 +173,6 @@ impl FusionEngine {
                     quest_right_hand,
                 );
                 let position_weight = weight * self.imu_position_weight;
-                let _ = (estimate.velocity, estimate.linear_acceleration, estimate.stationary);
-
                 if self.should_emit_position_goal(bone_id)
                     && !authority_locked
                     && position_weight > 0.0
@@ -207,11 +192,10 @@ impl FusionEngine {
         generated_goals
     }
 
-    /// Feed raw IMU data into the per-tracker EKF and cache the result.
-    /// Write a device-side quaternion ([x,y,z,w]) directly into the cached map.
+    /// Cache a device-side quaternion ([x, y, z, w]) for the tracker.
     pub fn inject_quaternion(&mut self, tracker_id: u8, xyzw: [f32; 4]) {
         let q = UnitQuaternion::new_normalize(Quaternion::new(xyzw[3], xyzw[0], xyzw[1], xyzw[2]));
-        self.ekf_quaternions.insert(tracker_id, q);
+        self.device_quaternions.insert(tracker_id, q);
     }
 
     pub fn start_mag_calibration(&mut self, tracker_id: u8) {
@@ -323,7 +307,7 @@ impl FusionEngine {
 
     pub fn reset_yaw(&mut self, trackers: &HashMap<u8, Tracker>) {
         for id in trackers.keys() {
-            if let Some(&rotation) = self.ekf_quaternions.get(id) {
+            if let Some(&rotation) = self.device_quaternions.get(id) {
                 let forward = rotation * Vector3::z();
                 let flat_forward = Vector3::new(forward.x, 0.0, forward.z);
                 if let Some(normalized_forward) = flat_forward.try_normalize(1e-6) {
@@ -338,7 +322,7 @@ impl FusionEngine {
 
     pub fn reset_mounting(&mut self, trackers: &HashMap<u8, Tracker>) {
         for id in trackers.keys() {
-            if let Some(&rotation) = self.ekf_quaternions.get(id) {
+            if let Some(&rotation) = self.device_quaternions.get(id) {
                 self.calibration_offsets.insert(*id, rotation.inverse());
             }
         }
@@ -350,7 +334,7 @@ impl FusionEngine {
         self.mag_calibration_active.clear();
         self.last_rotations.clear();
         self.last_stationary_times.clear();
-        self.ekf_quaternions.clear();
+        self.device_quaternions.clear();
         self.imu_trajectory.clear();
         log::info!("Cleared calibration offsets and IMU trajectory state");
     }
@@ -393,8 +377,6 @@ impl FusionEngine {
         accel: [f32; 3],
         rot_opt: Option<[f32; 4]>,
     ) -> bool {
-        use crate::imu::pose::FilteredPose;
-
         let accel_v = Vector3::new(accel[0], accel[1], accel[2]);
         let current_rot = if let Some(q) = rot_opt {
             UnitQuaternion::new_normalize(Quaternion::new(q[3], q[0], q[1], q[2]))
@@ -432,13 +414,6 @@ impl FusionEngine {
             .map(|(axis, angle)| axis.into_inner() * (angle / dt))
             .unwrap_or(Vector3::zeros());
 
-        let filtered = FilteredPose {
-            rotation: current_rot,
-            angular_velocity,
-            acceleration: accel_v,
-            magnetic_field: Vector3::zeros(),
-        };
-
         let detector = self.zupt_detectors.entry(tracker_id).or_insert_with(|| {
             ZuptDetector::new(
                 self.zupt_window_size,
@@ -447,7 +422,7 @@ impl FusionEngine {
             )
         });
 
-        let stationary = detector.update(&filtered);
+        let stationary = detector.update(accel_v, angular_velocity);
         self.last_rotations.insert(tracker_id, current_rot);
         stationary
     }
@@ -501,21 +476,19 @@ impl FusionEngine {
         let mut up_leg_rot = None;
         let mut leg_rot = None;
 
-        for (tracker_id, tracker) in trackers {
+        for tracker_id in trackers.keys() {
             let Some(bone_id) = self.assigner.get_bone_id(*tracker_id) else {
                 continue;
             };
-            let Some(&ekf_rot) = self.ekf_quaternions.get(tracker_id) else {
+            let Some(&device_rot) = self.device_quaternions.get(tracker_id) else {
                 continue;
             };
-            let _ = tracker; // no longer need tracker.quat
-
             let offset = self
                 .calibration_offsets
                 .get(tracker_id)
                 .copied()
                 .unwrap_or_else(UnitQuaternion::identity);
-            let final_rotation = offset * ekf_rot;
+            let final_rotation = offset * device_rot;
 
             if bone_id == 10 {
                 up_leg_rot = Some(final_rotation);
@@ -528,16 +501,6 @@ impl FusionEngine {
         if let (Some(up_leg), Some(leg)) = (up_leg_rot, leg_rot) {
             self.leg_calibration_data.push((head.position.y, up_leg, leg));
         }
-    }
-
-    fn make_pole_goal(
-        &self,
-        _skeleton: &SkeletonModel,
-        _bone_id: u8,
-        _final_rotation: UnitQuaternion<f32>,
-        _weight: f32,
-    ) -> Option<Goal> {
-        None
     }
 
     fn make_rotation_goal(
@@ -593,17 +556,6 @@ fn extract_yaw_rotation(rotation: &UnitQuaternion<f32>) -> UnitQuaternion<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn construct_mocktracker() {
-        let tracker = MockTracker {
-            position: Vector3::zeros(),
-            rotation: UnitQuaternion::identity(),
-        };
-
-        assert_eq!(tracker.position, Vector3::zeros());
-        assert_eq!(tracker.rotation, UnitQuaternion::identity());
-    }
 
     #[test]
     fn position_goals_only_for_roots_and_end_effectors() {

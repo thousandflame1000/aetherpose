@@ -1,16 +1,19 @@
 """
-Aetherpose — Open3D GUI frontend (single window)
+Aetherpose — Open3D GUI frontend (single window, no browser dependency)
   Left  : Open3D SceneWidget — SMPL mesh + IK skeleton + TP joints
   Right : control panel — Calibration / Monitor / Body / System tabs
 """
 
-import os, sys, time, threading, json, math
+import os, time, threading, json, math
 import numpy as np
 import open3d as o3d
 import open3d.visualization.gui      as gui
 import open3d.visualization.rendering as rendering
-from scipy.spatial.transform import Rotation as _Rot
 from ws_client import WsClient
+from transpose_runner import (
+    TransPoseRunner, SMPL_BONES, SMPL_LEFT, SMPL_RIGHT,
+    _SMPL_NPZ,
+)
 
 
 # ── FPS camera (yaw/pitch only, roll = 0) ─────────────────────────────────────
@@ -110,17 +113,6 @@ class FPSCamera:
         return moved
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
-_BONE_DATA_DIR = r'C:\Users\20050\OneDrive\桌面\bone_data_anylasis'
-_TRANSPOSE_DIR = r'D:\Download\TransPose\TransPose-main'
-_SMPL_NPZ      = r'D:\Download\SMPL_MALE.npz'
-_SMPL_PKL      = r'D:\Download\SMPL_MALE.pkl'
-_TP_WEIGHTS    = r'D:\Download\weights.pt'
-_DIP_ROOT      = r'D:\Download\DIPIMUandOthers\DIP_IMU_and_Others\DIP_IMU\DIP_IMU'
-
-for _p in (_BONE_DATA_DIR, _TRANSPOSE_DIR):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
-
 WS_URL = "ws://127.0.0.1:9009/ws"
 
 BONE_NAMES: dict[int, str] = {
@@ -133,224 +125,75 @@ BONE_NAMES: dict[int, str] = {
 LEFT_BONE_IDS  = {10,11,12,30,31,32,33}
 RIGHT_BONE_IDS = {20,21,22,40,41,42,43}
 
-SMPL_BONES = [
-    (0,1),(0,2),(0,3),(1,4),(2,5),(3,6),(4,7),(5,8),(6,9),
-    (7,10),(8,11),(9,12),(9,13),(9,14),(12,15),(13,16),(14,17),
-    (16,18),(17,19),(18,20),(19,21),(20,22),(21,23),
-]
-SMPL_LEFT  = {1,4,7,10,13,16,18,20,22}
-SMPL_RIGHT = {2,5,8,11,14,17,19,21,23}
-
 # Keep line skeletons readable by drawing them beside the body mesh.
 IK_SKELETON_OFFSET = np.array([-1.35, 0.0, 0.0], dtype=np.float64)
 TP_SKELETON_OFFSET = np.array([ 1.35, 0.0, 0.0], dtype=np.float64)
 
 
-# ── TransPose runner ──────────────────────────────────────────────────────────
+# ── Reach-target mini-game ──────────────────────────────────────────────────
+# Pure-IMU interaction: no mouse/keyboard. Floating targets pop when a
+# tracked hand (driven by the live or demo-playback pose) reaches them.
+SMPL_L_HAND = 22
+SMPL_R_HAND = 23
 
-class TransPoseRunner:
-    _IMU_MASK  = [7, 8, 11, 12, 0, 2]
-    MESH_EVERY = 8
-    BONE_TO_SLOT: dict[int, int] = {32:0, 42:1, 11:2, 21:3, 4:4, 2:5}
+class TargetGame:
+    N_TARGETS  = 3
+    HIT_RADIUS = 0.16
+    _CENTER    = TP_SKELETON_OFFSET + np.array([0.0, 1.25, 0.0])
+    _SPAN      = np.array([0.45, 0.30, 0.35])
 
-    def __init__(self, dip_subj='s_03', dip_clip=3):
-        self._lock       = threading.Lock()
-        self._status     = "Loading…"
-        self._joints     = None
-        self._latest_verts: np.ndarray | None = None
-        self._faces: np.ndarray | None = None
-        self._mask_acc   = None
-        self._mask_ori   = None
-        self._mask_idx   = 0
-        self._mask_source = "none"
-        self._last_live_slots = set()
-        self._online_cnt = 0
-        self._mesh_busy  = False
-        self._ready      = False
-        self._net = self._fk = self._nac = self._pending = None
-        threading.Thread(target=self._init, args=(dip_subj, dip_clip),
-                         daemon=True, name='tp-init').start()
+    def __init__(self):
+        self.score = 0
+        self.hit_flash = 0.0   # seconds remaining on the last-hit visual pulse
+        self.targets = [self._spawn_pos() for _ in range(self.N_TARGETS)]
 
-    @property
-    def status(self):
-        with self._lock:
-            return self._status
+    def _spawn_pos(self) -> np.ndarray:
+        return self._CENTER + np.random.uniform(-1.0, 1.0, 3) * self._SPAN
 
-    def _set_status(self, s):
-        with self._lock:
-            self._status = s
-
-    def _format_stream_status(self, frame_no: int, live_count: int, mask_source: str) -> str:
-        if live_count >= 6:
-            return f"Streaming #{frame_no} LIVE 6/6"
-        return f"Streaming #{frame_no} DEBUG mask={mask_source} live {live_count}/6"
-
-    def get_joints(self):
-        with self._lock:
-            return self._joints.copy() if self._joints is not None else None
-
-    def get_latest_verts(self):
-        with self._lock:
-            return self._latest_verts.copy() if self._latest_verts is not None else None
-
-    def push_frame(self, trackers: dict):
-        if not self._ready or self._mask_acc is None:
-            return
-        N  = len(self._mask_acc)
-        mi = self._mask_idx % N
-        acc_f = self._mask_acc[mi].copy()
-        ori_f = self._mask_ori[mi].copy()
-        self._mask_idx += 1
-
-        # Madgwick world frame: gravity = +Z = 9.81 m/s²
-        # DIP imu_acc = gravity-free linear acceleration in global frame
-        # Our firmware = raw accel (includes gravity) in local sensor frame
-        # Fix: a_global_linear = R @ a_local - gravity_world
-        _GRAVITY_WORLD = np.array([0.0, 0.0, 9.81], dtype=np.float32)
-        live_slots = set()
-
-        for t in trackers.values():
-            bone = t.get('assigned_bone')
-            slot = self.BONE_TO_SLOT.get(bone)
-            if slot is None: continue
-            accel = t.get('accel')
-            quat  = t.get('rotation')
-            if accel and quat:
-                R = _Rot.from_quat(
-                    np.array(quat, dtype=np.float64)).as_matrix().astype('float32')
-                a_local  = np.array(accel, dtype=np.float32)   # local frame, includes gravity
-                a_global = R @ a_local - _GRAVITY_WORLD         # gravity-free global frame
-                acc_f[slot] = a_global
-                ori_f[slot] = R
-                live_slots.add(slot)
-
-        with self._lock:
-            self._last_live_slots = live_slots
-            self._pending = (acc_f, ori_f, live_slots)
-
-    def _init(self, subj, clip_idx):
-        try:
-            import pickle, torch
-            self._set_status("Loading mask…")
-
-            # ── custom mask (.npz) ────────────────────────────────────────
-            _npz_path = os.path.join(os.path.dirname(__file__), 'tpose_mask.npz')
-            if os.path.exists(_npz_path):
-                d = np.load(_npz_path)
-                acc = d['imu_acc'].astype('float32')   # (N, 6, 3)
-                ori = d['imu_ori'].astype('float32')   # (N, 6, 3, 3)
-                with self._lock:
-                    self._mask_acc = acc
-                    self._mask_ori = ori
-                    self._mask_source = "tpose"
-                print(f"[mask] loaded custom: {_npz_path}  shape acc{acc.shape}")
-            else:
-                # ── DIP dataset mask ──────────────────────────────────────
-                subj_dir  = os.path.join(_DIP_ROOT, subj)
-                pkl_files = sorted(f for f in os.listdir(subj_dir) if f.endswith('.pkl'))
-                path      = os.path.join(subj_dir, pkl_files[clip_idx])
-                import warnings; warnings.filterwarnings('ignore')
-                data = pickle.load(open(path, 'rb'), encoding='latin1')
-                acc  = data['imu_acc'][:, self._IMU_MASK].astype('float32')
-                ori  = data['imu_ori'][:, self._IMU_MASK].astype('float32')
-                at, ot = torch.from_numpy(acc), torch.from_numpy(ori)
-                for _ in range(4):
-                    at[1:].masked_scatter_(torch.isnan(at[1:]),   at[:-1][torch.isnan(at[1:])])
-                    ot[1:].masked_scatter_(torch.isnan(ot[1:]),   ot[:-1][torch.isnan(ot[1:])])
-                    at[:-1].masked_scatter_(torch.isnan(at[:-1]), at[1:][torch.isnan(at[:-1])])
-                    ot[:-1].masked_scatter_(torch.isnan(ot[:-1]), ot[1:][torch.isnan(ot[:-1])])
-                with self._lock:
-                    self._mask_acc = at.numpy()
-                    self._mask_ori = ot.numpy()
-                    self._mask_source = "dip_imu"
-
-            self._set_status("Loading TransPose model…")
-            import config as tp_cfg
-            tp_cfg.paths.smpl_file    = _SMPL_PKL
-            tp_cfg.paths.weights_file = _TP_WEIGHTS
-            from net import TransPoseNet
-            from utils import normalize_and_concat
-            from dip_loader import SMPLForwardKinematics
-
-            net = TransPoseNet(); net.reset()
-            fk  = SMPLForwardKinematics(_SMPL_NPZ)
-            with self._lock:
-                self._net  = net
-                self._fk   = fk
-                self._faces = fk.faces.astype(np.int32)
-                self._nac  = normalize_and_concat
-                self._pending = None
-                self._ready = True
-                mask_source = self._mask_source
-            self._set_status(f"Ready (debug mask={mask_source}; validation needs LIVE 6/6)")
-            threading.Thread(target=self._inference_loop, daemon=True, name='tp-online').start()
-        except Exception as e:
-            self._set_status(f"Error: {e}")
-
-    def _inference_loop(self):
-        import torch
-        while True:
-            with self._lock:
-                pending = getattr(self, '_pending', None)
-                self._pending = None
-                net, fk, nac = self._net, self._fk, self._nac
-            if pending is None or not self._ready:
-                time.sleep(0.005); continue
-            acc_f, ori_f, live_slots = pending
-            try:
-                x = nac(torch.from_numpy(acc_f[None]),
-                        torch.from_numpy(ori_f[None]))[0]
-                pose, tran = net.forward_online(x)
-                R_np = pose.numpy()
-                t_np = tran.numpy()
-                aa     = _Rot.from_matrix(R_np).as_rotvec().reshape(1, 72).astype('float32')
-                joints = fk.forward(aa)[0]
-                joints -= joints[0:1]; joints += t_np
-
-                self._online_cnt += 1
-                do_mesh = False
-                with self._lock:
-                    self._joints = joints
-                    if self._online_cnt % self.MESH_EVERY == 0 and not self._mesh_busy:
-                        self._mesh_busy = True
-                        do_mesh = True
-                    mask_source = self._mask_source
-
-                if do_mesh:
-                    threading.Thread(target=self._compute_mesh,
-                                     args=(R_np.copy(), t_np.copy()),
-                                     daemon=True, name='tp-mesh').start()
-                self._set_status(self._format_stream_status(
-                    self._online_cnt, len(live_slots), mask_source))
-            except Exception as e:
-                self._set_status(f"Infer err: {e}")
-
-    def _compute_mesh(self, R_24x3x3, tran):
-        try:
-            with self._lock:
-                fk = self._fk
-            verts = fk.lbs_frame(R_24x3x3).astype(np.float32)
-            verts -= verts[0:1]
-            verts += tran.astype(np.float32)
-            with self._lock:
-                self._latest_verts = verts
-                self._mesh_busy    = False
-        except Exception:
-            with self._lock:
-                self._mesh_busy = False
+    def update(self, joints: np.ndarray | None, dt: float) -> list[int]:
+        """Check tracked hands against targets; respawn on hit.
+        Returns indices of targets that were just hit (for a visual pulse)."""
+        self.hit_flash = max(0.0, self.hit_flash - dt)
+        if joints is None or len(joints) <= SMPL_R_HAND:
+            return []
+        hands = [joints[SMPL_L_HAND] + TP_SKELETON_OFFSET,
+                 joints[SMPL_R_HAND] + TP_SKELETON_OFFSET]
+        hit_idx = []
+        for i, t in enumerate(self.targets):
+            if any(np.linalg.norm(h - t) < self.HIT_RADIUS for h in hands):
+                self.targets[i] = self._spawn_pos()
+                self.score += 1
+                self.hit_flash = 0.25
+                hit_idx.append(i)
+        return hit_idx
 
 
 # ── App ───────────────────────────────────────────────────────────────────────
 
 class App:
-    MAX_TRACKERS = 8
+    MAX_TRACKERS  = 8
+    TARGET_RADIUS = 0.06
 
     def __init__(self):
         app = gui.Application.instance
         app.initialize()
         self._app = app
 
-        self.window = app.create_window("Aetherpose", 1400, 820)
+        win_w, win_h = 1400, 820
+        try:
+            import ctypes
+            user32 = ctypes.windll.user32
+            screen_w = user32.GetSystemMetrics(0)
+            screen_h = user32.GetSystemMetrics(1)
+            if screen_w > 0 and screen_h > 0:
+                # Leave room for the taskbar/title bar so the window (and its
+                # control panel, which lives at the far right edge) is never
+                # clipped off a smaller demo-room display or projector.
+                win_w = min(win_w, int(screen_w * 0.92))
+                win_h = min(win_h, int(screen_h * 0.88))
+        except Exception:
+            pass
+        self.window = app.create_window("Aetherpose", win_w, win_h)
         em = self.window.theme.font_size
         self._em = em
 
@@ -358,6 +201,12 @@ class App:
         self.snapshot = {}
         self._tp      = TransPoseRunner()
         self._faces: np.ndarray | None = None
+        self._verts_version  = 0
+        self._joints_version = 0
+        self._last_bones_key = None
+        self._last_geo_update = 0.0
+        self._geo_interval    = 1.0 / 20   # cap GPU geometry churn at ~20 Hz
+        self._game = TargetGame()
 
         self._mat_mesh  = rendering.MaterialRecord()
         self._mat_mesh.shader = "defaultLit"
@@ -400,13 +249,29 @@ class App:
         # Floor grid
         self._add_floor(sc, y=-1.0)
 
-        # Camera — custom FPS (roll locked to 0)
+        # Reach-target mini-game markers — repositioned via set_geometry_transform
+        # each frame (cheap: no GPU realloc), driven purely by tracked hand joints.
+        self._mat_target = rendering.MaterialRecord()
+        self._mat_target.shader = "defaultUnlit"
+        target_mesh = o3d.geometry.TriangleMesh.create_sphere(radius=self.TARGET_RADIUS)
+        target_mesh.compute_vertex_normals()
+        target_mesh.paint_uniform_color([1.0, 0.84, 0.30])
+        for i, pos in enumerate(self._game.targets):
+            name = f"target_{i}"
+            sc.add_geometry(name, target_mesh, self._mat_target)
+            sc.set_geometry_transform(name, self._translation(pos))
+
+        # Camera — custom FPS (roll locked to 0). setup_camera() derives its
+        # projection from the SceneWidget's current pixel size, which is
+        # still 0x0 here (no layout pass has run yet) — calling it this early
+        # produces an invalid projection and an all-black viewport. It gets
+        # called for real on the first _on_layout() once the widget has a
+        # real frame.
         self._cam = FPSCamera(self._scene)
         self._scene.set_view_controls(gui.SceneWidget.Controls.ROTATE_CAMERA)
-        bounds = o3d.geometry.AxisAlignedBoundingBox(
+        self._camera_bounds = o3d.geometry.AxisAlignedBoundingBox(
             np.array([-2.8, -1.2, -1.2]), np.array([2.8, 2.2, 1.2]))
-        self._scene.setup_camera(60.0, bounds, np.array([0.0, 0.8, 0.0]))
-        self._cam.apply()
+        self._camera_ready = False
         self._scene.set_on_mouse(self._cam.on_mouse)
         self._scene.set_on_key(self._cam.on_key)
         self.window.add_child(self._scene)
@@ -433,57 +298,94 @@ class App:
         m  = gui.Margins(p)
         panel = gui.ScrollableVert(sp, m)
 
+        # ── palette ────────────────────────────────────────────────────────
+        # Every widget below takes its own background_color override — the
+        # shared Theme object has no color knobs, so this is the only way to
+        # get out of the default flat-gray look.
+        pal = {
+            "bg":      gui.Color(0.08, 0.10, 0.14),   # matches the 3D viewport
+            "card":    gui.Color(0.13, 0.16, 0.21),
+            "tabs":    gui.Color(0.10, 0.125, 0.16),
+            "accent":  gui.Color(0.40, 0.65, 1.00),   # primary actions
+            "danger":  gui.Color(0.90, 0.45, 0.45),   # destructive actions
+            "neutral": gui.Color(0.24, 0.28, 0.35),   # secondary actions
+        }
+        self._pal = pal
+        panel.background_color = pal["bg"]
+
+        def card(title):
+            c = gui.CollapsableVert(title, sp, gui.Margins(0))
+            c.background_color = pal["card"]
+            return c
+
+        def btn(label, kind="neutral"):
+            b = gui.Button(label)
+            b.background_color = pal[kind]
+            return b
+
         # ── status bar ──────────────────────────────────────────────────────
-        sr = gui.Horiz(int(em * 0.4))
-        self._status_lbl = gui.Label("● Disconnected")
+        # Stacked rather than squeezed onto one stretched row — a stretch-to-
+        # the-edge layout clips the trailing label the moment the panel is
+        # narrower than "status text + packet count" combined.
+        self._status_lbl = gui.Label("Disconnected")
         self._status_lbl.text_color = gui.Color(0.96, 0.31, 0.31)
         self._pkt_lbl = gui.Label("0 pkts")
         self._pkt_lbl.text_color = gui.Color(0.50, 0.53, 0.58)
-        sr.add_child(self._status_lbl)
-        sr.add_stretch()
-        sr.add_child(self._pkt_lbl)
-        panel.add_child(sr)
+        panel.add_child(self._status_lbl)
+        panel.add_child(self._pkt_lbl)
 
         # ── TP status ───────────────────────────────────────────────────────
-        self._tp_lbl = gui.Label("TP: Loading…")
+        self._tp_lbl = gui.Label("Initializing...")
         self._tp_lbl.text_color = gui.Color(1.0, 0.69, 0.35)
         panel.add_child(self._tp_lbl)
 
+        # ── reach-target mini-game score ───────────────────────────────────
+        self._score_lbl = gui.Label("Reach targets: 0")
+        self._score_lbl.text_color = gui.Color(1.0, 0.84, 0.30)
+        panel.add_child(self._score_lbl)
+
         tabs = gui.TabControl()
+        tabs.background_color = pal["tabs"]
 
         # ────────────────────────────────────────────────────────────────────
         # TAB: Calibration
         # ────────────────────────────────────────────────────────────────────
         cal = gui.ScrollableVert(sp, gui.Margins(p, sp, p, sp))
+        cal.background_color = pal["bg"]
 
-        sec_actions = gui.CollapsableVert("Actions", sp, gui.Margins(0))
+        sec_actions = card("Actions")
         r1 = gui.Horiz(sp)
         for lbl, c in [("Reset Yaw","ResetYaw"),("Reset Mount","ResetMounting")]:
-            b = gui.Button(lbl); b.set_on_clicked(lambda x=c: self._cmd(x)); r1.add_child(b)
+            b = btn(lbl); b.set_on_clicked(lambda x=c: self._cmd(x)); r1.add_child(b)
         sec_actions.add_child(r1)
         r2 = gui.Horiz(sp)
-        b_aa = gui.Button("Auto Assign"); b_aa.set_on_clicked(lambda: self._cmd("AutoAssign"))
-        b_cc = gui.Button("Clear Cal.");  b_cc.set_on_clicked(lambda: self._cmd("ClearAllCalibration"))
+        b_aa = btn("Auto Assign", "accent"); b_aa.set_on_clicked(lambda: self._cmd("AutoAssign"))
+        b_cc = btn("Clear Cal.", "danger");  b_cc.set_on_clicked(lambda: self._cmd("ClearAllCalibration"))
         r2.add_child(b_aa); r2.add_child(b_cc)
         sec_actions.add_child(r2)
         r3 = gui.Horiz(sp)
-        b_tp = gui.Button("Reset T-Pose"); b_tp.set_on_clicked(self._reset_tpose)
+        b_tp = btn("Reset T-Pose"); b_tp.set_on_clicked(self._reset_tpose)
         r3.add_child(b_tp)
         sec_actions.add_child(r3)
         cal.add_child(sec_actions)
 
-        sec_tr = gui.CollapsableVert("Trackers", sp, gui.Margins(0))
+        sec_tr = card("Trackers")
+        self._cal_bone_ids = list(BONE_NAMES.keys())
         self._cal_rows: list = []
         for _ in range(self.MAX_TRACKERS):
             row = gui.Horiz(sp)
             lbl = gui.Label(""); lbl.text_color = gui.Color(0.35, 0.70, 1.0)
             combo = gui.Combobox()
-            combo.add_item("—")
+            combo.add_item("Unassigned")
             for bn in BONE_NAMES.values(): combo.add_item(bn)
+            tracker_id_box = [None]  # mutable cell holding this row's current tracker id
+            combo.set_on_selection_changed(
+                lambda text, idx, box=tracker_id_box: self._on_bone_assign(box[0], idx))
             row.add_fixed(int(em * 3)); row.add_child(lbl)
             row.add_stretch(); row.add_child(combo)
+            row.add_fixed(int(em * 0.3))   # trailing gap so the dropdown never hugs the edge
             sec_tr.add_child(row)
-            self._cal_rows.append((row, lbl, combo))
+            self._cal_rows.append((row, lbl, combo, tracker_id_box))
         cal.add_child(sec_tr)
         tabs.add_tab("Calibration", cal)
 
@@ -491,6 +393,7 @@ class App:
         # TAB: Monitor
         # ────────────────────────────────────────────────────────────────────
         mon = gui.ScrollableVert(sp, gui.Margins(p, sp, p, sp))
+        mon.background_color = pal["bg"]
         self._mon_rows: list = []
         for _ in range(self.MAX_TRACKERS):
             st_l  = gui.Label(""); st_l.text_color = gui.Color(0.35, 0.70, 1.0)
@@ -504,8 +407,9 @@ class App:
         # TAB: Body
         # ────────────────────────────────────────────────────────────────────
         body = gui.ScrollableVert(sp, gui.Margins(p, sp, p, sp))
+        body.background_color = pal["bg"]
 
-        sec_prop = gui.CollapsableVert("Proportions", sp, gui.Margins(0))
+        sec_prop = card("Proportions")
         self._ik_s    = self._isl(sec_prop, "IK Smooth", 0.0, 1.0,  0.5, em,
                                   lambda v: self._cmd({"SetIkSmoothness": v}))
         self._leg_s   = self._isl(sec_prop, "Legs",      0.5, 1.5,  1.0, em, lambda v: self._prop_changed())
@@ -513,50 +417,76 @@ class App:
         self._spine_s = self._isl(sec_prop, "Spine",     0.5, 1.5,  1.0, em, lambda v: self._prop_changed())
         body.add_child(sec_prop)
 
-        sec_filt = gui.CollapsableVert("One Euro Filter", sp, gui.Margins(0))
+        sec_filt = card("One Euro Filter")
         self._cutoff_s = self._isl(sec_filt, "Cutoff", 0.01, 5.0, 3.0, em, lambda v: self._smooth_changed())
         self._beta_s   = self._isl(sec_filt, "Beta",    0.0, 10.0, 3.0, em, lambda v: self._smooth_changed())
         body.add_child(sec_filt)
 
-        sec_floor = gui.CollapsableVert("Virtual Floor", sp, gui.Margins(0))
+        sec_floor = card("Virtual Floor")
         fr = gui.Horiz(sp)
         lf = gui.Label("Offset"); lf.text_color = gui.Color(0.50, 0.53, 0.58)
         fr.add_child(lf); fr.add_fixed(int(em * 0.3))
         self._floor_s = gui.Slider(gui.Slider.DOUBLE)
         self._floor_s.set_limits(-2.0, 2.0); self._floor_s.double_value = 0.0
         self._floor_s.set_on_value_changed(lambda v: self._cmd({"SetFloorOffset": v}))
-        btn_af = gui.Button("Auto"); btn_af.set_on_clicked(lambda: self._cmd("AutoFloor"))
+        btn_af = btn("Auto"); btn_af.set_on_clicked(lambda: self._cmd("AutoFloor"))
         fr.add_child(self._floor_s); fr.add_child(btn_af)
         sec_floor.add_child(fr)
         body.add_child(sec_floor)
 
-        sec_misc = gui.CollapsableVert("Drift / Trajectory", sp, gui.Margins(0))
+        sec_misc = card("Drift / Trajectory")
         self._drift_s = self._isl(sec_misc, "Drift", 0.0, 1.0, 0.0, em,
                                   lambda v: self._cmd({"SetDriftCorrection": v}))
         tr = gui.Horiz(sp)
         for lbl, mode in [("RK4","rk4"),("Euler","euler")]:
-            b = gui.Button(lbl)
+            b = btn(lbl)
             b.set_on_clicked(lambda m=mode: self._cmd({"SetTrajectoryIntegrationMode": m}))
             tr.add_child(b)
         sec_misc.add_child(tr)
         body.add_child(sec_misc)
+
+        sec_leg = card("Leg Calibration")
+        lr = gui.Horiz(sp)
+        b_lc0 = btn("Start Leg Cal", "accent"); b_lc0.set_on_clicked(lambda: self._cmd("StartLegCalibration"))
+        b_lc1 = btn("Stop", "danger");          b_lc1.set_on_clicked(lambda: self._cmd("StopLegCalibration"))
+        lr.add_child(b_lc0); lr.add_child(b_lc1)
+        sec_leg.add_child(lr)
+        self._leg_ratio_lbl = gui.Label("Leg ratio: -")
+        self._leg_ratio_lbl.text_color = gui.Color(0.50, 0.53, 0.58)
+        sec_leg.add_child(self._leg_ratio_lbl)
+        body.add_child(sec_leg)
         tabs.add_tab("Body", body)
 
         # ────────────────────────────────────────────────────────────────────
         # TAB: System
         # ────────────────────────────────────────────────────────────────────
         sys_t = gui.ScrollableVert(sp, gui.Margins(p, sp, p, sp))
+        sys_t.background_color = pal["bg"]
 
-        sec_osc = gui.CollapsableVert("OSC Output", sp, gui.Margins(0))
+        sec_osc = card("OSC Output")
         self._osc_ip   = gui.TextEdit(); self._osc_ip.text_value   = "127.0.0.1"
         self._osc_port = gui.TextEdit(); self._osc_port.text_value = "9000"
         sec_osc.add_child(self._fw("IP",   self._osc_ip,   em))
         sec_osc.add_child(self._fw("Port", self._osc_port, em))
-        b_osc = gui.Button("Apply OSC"); b_osc.set_on_clicked(self._on_osc_apply)
+        b_osc = btn("Apply OSC", "accent"); b_osc.set_on_clicked(self._on_osc_apply)
         sec_osc.add_child(b_osc)
         sys_t.add_child(sec_osc)
 
-        sec_rec = gui.CollapsableVert("Recording", sp, gui.Margins(0))
+        sec_zupt = card("ZUPT")
+        self._zupt_en = gui.Checkbox("Enabled"); self._zupt_en.checked = True
+        self._zupt_en.set_on_checked(lambda v: self._cmd({"SetZuptEnabled": v}))
+        sec_zupt.add_child(self._zupt_en)
+        self._zupt_win   = gui.TextEdit(); self._zupt_win.text_value   = "8"
+        self._zupt_accel = gui.TextEdit(); self._zupt_accel.text_value = "0.0005"
+        self._zupt_gyro  = gui.TextEdit(); self._zupt_gyro.text_value  = "0.02"
+        sec_zupt.add_child(self._fw("Window",    self._zupt_win,   em))
+        sec_zupt.add_child(self._fw("Accel Var", self._zupt_accel, em))
+        sec_zupt.add_child(self._fw("Gyro Thr.", self._zupt_gyro,  em))
+        b_zupt = btn("Apply ZUPT", "accent"); b_zupt.set_on_clicked(self._on_zupt_apply)
+        sec_zupt.add_child(b_zupt)
+        sys_t.add_child(sec_zupt)
+
+        sec_rec = card("Recording")
         self._rec_file  = gui.TextEdit(); self._rec_file.text_value  = "recording.bin"
         self._rec_batch = gui.TextEdit(); self._rec_batch.text_value = "128"
         self._rec_flush = gui.TextEdit(); self._rec_flush.text_value = "500"
@@ -566,23 +496,23 @@ class App:
         bf.add_child(self._fw("Flush ms", self._rec_flush, em))
         sec_rec.add_child(bf)
         rc = gui.Horiz(sp)
-        b_rcfg = gui.Button("Config"); b_rcfg.set_on_clicked(self._on_rec_config)
-        b_rs   = gui.Button("▶ Rec");  b_rs.set_on_clicked(lambda: self._cmd("StartRecording"))
-        b_rx   = gui.Button("■ Stop"); b_rx.set_on_clicked(lambda: self._cmd("StopRecording"))
+        b_rcfg = btn("Config");            b_rcfg.set_on_clicked(self._on_rec_config)
+        b_rs   = btn("Start Rec", "accent"); b_rs.set_on_clicked(lambda: self._cmd("StartRecording"))
+        b_rx   = btn("Stop Rec", "danger");  b_rx.set_on_clicked(lambda: self._cmd("StopRecording"))
         rc.add_child(b_rcfg); rc.add_child(b_rs); rc.add_child(b_rx)
         sec_rec.add_child(rc)
         self._rec_st_lbl = gui.Label("Idle"); self._rec_st_lbl.text_color = gui.Color(0.50,0.53,0.58)
         sec_rec.add_child(self._rec_st_lbl)
         sys_t.add_child(sec_rec)
 
-        sec_ser = gui.CollapsableVert("Serial", sp, gui.Margins(0))
+        sec_ser = card("Serial")
         self._ser_port = gui.TextEdit(); self._ser_port.text_value = "COM3"
         self._ser_baud = gui.TextEdit(); self._ser_baud.text_value = "115200"
         self._ser_en   = gui.Checkbox("Enabled")
         sec_ser.add_child(self._fw("Port", self._ser_port, em))
         sec_ser.add_child(self._fw("Baud", self._ser_baud, em))
         sec_ser.add_child(self._ser_en)
-        b_ser = gui.Button("Apply Serial"); b_ser.set_on_clicked(self._on_serial_apply)
+        b_ser = btn("Apply Serial", "accent"); b_ser.set_on_clicked(self._on_serial_apply)
         sec_ser.add_child(b_ser)
         self._ser_st_lbl = gui.Label(""); self._ser_st_lbl.text_color = gui.Color(0.50,0.53,0.58)
         sec_ser.add_child(self._ser_st_lbl)
@@ -597,9 +527,13 @@ class App:
 
     def _on_layout(self, ctx):
         r = self.window.content_rect
-        panel_w = int(ctx.theme.font_size * 18)
+        panel_w = int(ctx.theme.font_size * 21)
         self._scene.frame  = gui.Rect(r.x, r.y, r.width - panel_w, r.height)
         self._panel.frame  = gui.Rect(r.x + r.width - panel_w, r.y, panel_w, r.height)
+        if not self._camera_ready and self._scene.frame.width > 0 and self._scene.frame.height > 0:
+            self._camera_ready = True
+            self._scene.setup_camera(60.0, self._camera_bounds, np.array([0.0, 0.8, 0.0]))
+            self._cam.apply()
 
     # ── helpers ───────────────────────────────────────────────────────────────
 
@@ -627,6 +561,18 @@ class App:
         row.add_child(widget)
         return row
 
+    @staticmethod
+    def _tp_display(status: str) -> tuple[str, gui.Color]:
+        """Collapse the internal TransPose status string into a short,
+        presentation-friendly label (no debug jargon)."""
+        if status.startswith("Error"):
+            return "Error", gui.Color(0.90, 0.35, 0.35)
+        if status.startswith(("Loading", "Ready")):
+            return "Initializing...", gui.Color(0.90, 0.65, 0.30)
+        if "LIVE 6/6" in status:
+            return "Live Motion Capture", gui.Color(0.35, 0.85, 0.55)
+        return "Demo Playback", gui.Color(0.55, 0.78, 1.0)
+
     # ── commands ──────────────────────────────────────────────────────────────
 
     def _cmd(self, cmd):
@@ -639,6 +585,7 @@ class App:
             with self._tp._lock:
                 self._tp._latest_verts = None
                 self._tp._joints       = None
+                self._tp._origin_t     = None
                 if self._tp._net is not None:
                     try:
                         self._tp._net.reset()
@@ -680,6 +627,21 @@ class App:
             self._cmd({"SetOscTarget": [self._osc_ip.text_value, int(self._osc_port.text_value)]})
         except: pass
 
+    def _on_bone_assign(self, tracker_id, combo_idx):
+        if tracker_id is None or combo_idx <= 0:
+            return
+        bone_id = self._cal_bone_ids[combo_idx - 1]
+        self._cmd({"AssignTracker": [tracker_id, bone_id]})
+
+    def _on_zupt_apply(self):
+        try:
+            self._cmd({"SetZuptParams": {
+                "window_size":         int(self._zupt_win.text_value),
+                "accel_var_threshold": float(self._zupt_accel.text_value),
+                "gyro_threshold":      float(self._zupt_gyro.text_value),
+            }})
+        except: pass
+
     def _on_rec_config(self):
         try:
             self._cmd({"SetRecorderConfig": {
@@ -707,6 +669,22 @@ class App:
         except: pass
 
     # ── 3D scene update ───────────────────────────────────────────────────────
+
+    @staticmethod
+    def _translation(pos: np.ndarray) -> np.ndarray:
+        t = np.eye(4)
+        t[:3, 3] = pos
+        return t
+
+    def _update_targets(self, hit_idx: list[int]):
+        """Reposition target markers via a transform update — no geometry
+        realloc, so this is cheap enough to run every throttled tick."""
+        sc = self._scene.scene
+        for i, pos in enumerate(self._game.targets):
+            scale = 1.35 if i in hit_idx else 1.0
+            t = self._translation(pos)
+            t[:3, :3] *= scale
+            sc.set_geometry_transform(f"target_{i}", t)
 
     def _update_mesh(self, verts: np.ndarray):
         if self._faces is None:
@@ -785,10 +763,12 @@ class App:
 
         # Status
         ok = self.ws.is_connected()
-        self._status_lbl.text = "● Connected" if ok else "● Disconnected"
+        self._status_lbl.text = "Connected" if ok else "Disconnected"
         self._status_lbl.text_color = (gui.Color(0.31, 0.73, 0.47) if ok
                                        else gui.Color(0.75, 0.35, 0.35))
-        self._tp_lbl.text = f"TP: {self._tp.status}"
+        tp_text, tp_color = self._tp_display(self._tp.status)
+        self._tp_lbl.text = tp_text
+        self._tp_lbl.text_color = tp_color
 
         # Packets
         self._pkt_lbl.text = f"Packets: {snap.get('packet_count', 0):,}"
@@ -806,8 +786,8 @@ class App:
                 conn     = t.get('connection_type','?')
                 tps      = t.get('tps', 0)
                 bone_id  = t.get('assigned_bone')
-                bone_str = BONE_NAMES.get(bone_id, "—") if bone_id is not None else "—"
-                st_l.text  = f"ID {tid}  {conn}  {tps}tps  → {bone_str}"
+                bone_str = BONE_NAMES.get(bone_id, "-") if bone_id is not None else "-"
+                st_l.text  = f"ID {tid}  {conn}  {tps}tps  -> {bone_str}"
                 batt = t.get('battery', 0)
                 loss = t.get('lost_packets', 0)
                 recv = max(t.get('received_packets', 1), 1)
@@ -817,16 +797,28 @@ class App:
                 det_l.text = ""
 
         # Calibration tracker rows
-        for i, (row, lbl, combo) in enumerate(self._cal_rows):
+        for i, (row, lbl, combo, tracker_id_box) in enumerate(self._cal_rows):
             if i < len(items):
                 _, t = items[i]
+                tracker_id_box[0] = t.get('id')
                 lbl.text = f"ID {t.get('id','?')}"
+                bone_id = t.get('assigned_bone')
+                idx = (self._cal_bone_ids.index(bone_id) + 1
+                       if bone_id in self._cal_bone_ids else 0)
+                if combo.selected_index != idx:
+                    combo.selected_index = idx
             else:
+                tracker_id_box[0] = None
                 lbl.text = ""
+
+        # Leg ratio
+        leg_ratio = snap.get('leg_ratio')
+        if leg_ratio is not None:
+            self._leg_ratio_lbl.text = f"Leg ratio: {leg_ratio:.3f}"
 
         # Recording status
         if snap.get('is_recording'):
-            self._rec_st_lbl.text = f"● Recording — dropped:{snap.get('recorder_dropped_count',0)}"
+            self._rec_st_lbl.text = f"Recording (dropped: {snap.get('recorder_dropped_count',0)})"
             self._rec_st_lbl.text_color = gui.Color(0.9, 0.35, 0.35)
         else:
             self._rec_st_lbl.text = "Idle"
@@ -837,21 +829,37 @@ class App:
         if msg_s:
             self._ser_st_lbl.text = msg_s
 
-        # 3D scene updates
-        bones = snap.get("bones", [])
-        if bones:
-            self._update_ik_skeleton(bones, trackers)
+        # 3D scene updates — capped rate. Filament (the renderer) has to
+        # reallocate GPU buffers on every remove/add of a geometry, and the
+        # skeleton/mesh here would otherwise churn that at a full 60 Hz even
+        # when nothing moved; that's needless driver load a demo laptop's
+        # GPU doesn't need to eat, so update at a perceptually-smooth ~20 Hz
+        # and skip anything that hasn't actually changed since last time.
+        now_t = time.perf_counter()
+        if now_t - self._last_geo_update >= self._geo_interval:
+            self._last_geo_update = now_t
 
-        if self._tp:
-            verts = self._tp.get_latest_verts()
-            if verts is not None:
-                self._update_mesh(verts)
-                if self._faces is not None and self._tp._faces is None:
-                    self._tp._faces = self._faces
+            bones = snap.get("bones", [])
+            if bones:
+                bones_key = tuple(round(c, 3) for b in bones for c in b["pos"])
+                if bones_key != self._last_bones_key:
+                    self._last_bones_key = bones_key
+                    self._update_ik_skeleton(bones, trackers)
 
-            joints = self._tp.get_joints()
-            if joints is not None:
-                self._update_tp_joints(joints)
+            if self._tp:
+                verts, self._verts_version = self._tp.get_latest_verts_if_new(self._verts_version)
+                if verts is not None:
+                    self._update_mesh(verts)
+                    if self._faces is not None and self._tp._faces is None:
+                        self._tp._faces = self._faces
+
+                joints, self._joints_version = self._tp.get_joints_if_new(self._joints_version)
+                if joints is not None:
+                    self._update_tp_joints(joints)
+                    hit_idx = self._game.update(joints, self._geo_interval)
+                    self._update_targets(hit_idx)
+
+        self._score_lbl.text = f"Reach targets: {self._game.score}"
 
     def _refresh_loop(self):
         last = time.perf_counter()
@@ -865,11 +873,13 @@ class App:
     def run(self):
         self.ws.start()
         threading.Thread(target=self._refresh_loop, daemon=True, name="refresh").start()
-        # Open browser panel
-        import webbrowser, pathlib
-        html = pathlib.Path(__file__).parent / "panel.html"
-        webbrowser.open(html.as_uri())
         self._app.run()
+        # Several daemon threads (WS client, TransPose inference/mesh) keep
+        # touching Python/torch state after the window closes. Letting the
+        # interpreter run its normal finalization races with them and
+        # reliably crashes with "Fatal Python error: gilstate_tss_set" on
+        # exit. Nothing here needs a graceful teardown, so skip it.
+        os._exit(0)
 
 
 if __name__ == "__main__":

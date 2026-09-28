@@ -15,7 +15,7 @@ use crate::net;
 use crate::net::packet::PacketData;
 use crate::net::ble::SyncQuatMap;
 use crate::output::osc::OscSender;
-use crate::output::recorder::Recorder;
+use crate::recording::Recorder;
 use crate::skeleton::model::SkeletonModel;
 use crossbeam_channel::{bounded, Receiver, Sender};
 use log::{error, info};

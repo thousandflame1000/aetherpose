@@ -36,14 +36,17 @@ fn test_process_with_assigned_tracker() {
     let skel = SkeletonModel::new_humanoid();
     let mut trackers: HashMap<u8, Tracker> = HashMap::new();
 
-    // create a tracker with rotation and accel
+    // create a tracker with accel
     let mut t = Tracker::new(10);
-    t.quat = Some([0.0, 0.0, 0.0, 1.0]);
     t.accel = Some([0.0, 1.0, 0.0]);
     trackers.insert(10u8, t);
 
     // assign tracker 10 -> bone 10
     fusion.assigner.set_assignment(10, 10);
+    // seed the EKF-fused orientation cache (process() only emits a goal once
+    // a fused quaternion exists for the tracker; in production this comes
+    // from the IMU ingest pipeline, not from a field on Tracker)
+    fusion.inject_quaternion(10, [0.0, 0.0, 0.0, 1.0]);
 
     let goals = fusion.process(&skel, &trackers, None, None, None);
     // Expect at least one goal targeting bone 10

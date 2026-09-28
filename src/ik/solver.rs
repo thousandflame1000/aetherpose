@@ -2,8 +2,7 @@ use crate::ik::goals::Goal;
 use crate::skeleton::model::SkeletonModel;
 use nalgebra::{UnitQuaternion, Vector3};
 
-/// A lightweight IK solver built around CCD, pole-vector correction, and
-/// a few post-pass regularization steps.
+/// A lightweight IK solver built around CCD and a few post-pass regularization steps.
 pub struct IkSolver {
     iterations: usize,
     threshold: f32,
@@ -27,7 +26,6 @@ impl IkSolver {
 
     pub fn solve(&mut self, skeleton: &mut SkeletonModel, goals: &[Goal]) {
         let mut position_goals = Vec::new();
-        let mut pole_goals = Vec::new();
         let mut rotation_goals = Vec::new();
         let mut pose_prior = None;
         let mut temporal_smoothness = None;
@@ -36,7 +34,6 @@ impl IkSolver {
         for goal in goals {
             match goal {
                 Goal::Position { .. } => position_goals.push(goal),
-                Goal::Pole { .. } => pole_goals.push(goal),
                 Goal::Rotation { .. } => rotation_goals.push(goal),
                 Goal::PosePrior { pose, weight } if *weight > 0.0 => {
                     pose_prior = Some((pose, *weight));
@@ -73,27 +70,6 @@ impl IkSolver {
                             solved = false;
                         }
                     }
-                }
-            }
-
-            for goal in &pole_goals {
-                if let Goal::Pole {
-                    middle_joint_id,
-                    end_effector_id,
-                    pole_target_position,
-                    weight,
-                } = goal
-                {
-                    if *weight <= 0.0 {
-                        continue;
-                    }
-
-                    self.solve_pole_vector_pass(
-                        skeleton,
-                        *middle_joint_id,
-                        *end_effector_id,
-                        *pole_target_position,
-                    );
                 }
             }
 
@@ -239,50 +215,6 @@ impl IkSolver {
                     bone.local_rotation.renormalize();
                 }
                 skeleton.update_fk_from(bone_id);
-            }
-        }
-    }
-
-    fn solve_pole_vector_pass(
-        &self,
-        skeleton: &mut SkeletonModel,
-        middle_joint_id: u8,
-        end_effector_id: u8,
-        pole_target_pos: Vector3<f32>,
-    ) {
-        let Some(root_bone_id) = skeleton
-            .bones
-            .get(&middle_joint_id)
-            .and_then(|bone| bone.parent_id)
-        else {
-            return;
-        };
-
-        let (root_pos, mid_pos, end_pos) = match (
-            skeleton.get_joint_position(root_bone_id),
-            skeleton.get_joint_position(middle_joint_id),
-            skeleton.get_joint_position(end_effector_id),
-        ) {
-            (Some(root_pos), Some(mid_pos), Some(end_pos)) => (root_pos, mid_pos, end_pos),
-            _ => return,
-        };
-
-        let limb_vec = end_pos - root_pos;
-        let current_plane_normal = (mid_pos - root_pos).cross(&limb_vec);
-        let target_plane_normal = (pole_target_pos - root_pos).cross(&limb_vec);
-
-        if let (Some(current_normal), Some(target_normal)) = (
-            current_plane_normal.try_normalize(1e-6),
-            target_plane_normal.try_normalize(1e-6),
-        ) {
-            if let Some(correction_rot) =
-                UnitQuaternion::rotation_between(&current_normal, &target_normal)
-            {
-                if let Some(root_bone) = skeleton.bones.get_mut(&root_bone_id) {
-                    root_bone.local_rotation = correction_rot * root_bone.local_rotation;
-                    root_bone.local_rotation.renormalize();
-                }
-                skeleton.update_fk_from(root_bone_id);
             }
         }
     }
