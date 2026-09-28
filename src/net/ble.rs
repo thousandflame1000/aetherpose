@@ -21,6 +21,12 @@ const TRACKER_CHARACTERISTIC_UUID: Uuid = Uuid::from_u128(0x19B10001_E8F2_537E_4
 /// Write characteristic: host → device, 16 bytes [x,y,z,w] EKF sync quaternion
 const TRACKER_SYNC_UUID:           Uuid = Uuid::from_u128(0x19B10002_E8F2_537E_4F6C_D104768A1214);
 
+/// The firmware notifies at ~100 Hz. On Windows a tracker that resets or loses
+/// power often never ends its notification stream, which left it marked as
+/// connected (and ignored by the scan loop) until the backend was restarted.
+/// This much silence is treated as a disconnect so the scan loop reconnects it.
+const NOTIFY_STALL_TIMEOUT: Duration = Duration::from_secs(3);
+
 /// Shared map: tracker_id → latest EKF quaternion [x,y,z,w] to sync back to device.
 /// Written by ingest.rs when loss rate is low; read by BLE notification task.
 pub type SyncQuatMap = Arc<Mutex<HashMap<u8, [f32; 4]>>>;
@@ -173,7 +179,16 @@ pub async fn run_ble_client(
                         let mut last_sync_sent = Instant::now();
                         const SYNC_INTERVAL: Duration = Duration::from_millis(300);
 
-                        while let Some(data) = notification_stream.next().await {
+                        loop {
+                            let data = match time::timeout(NOTIFY_STALL_TIMEOUT, notification_stream.next()).await {
+                                Ok(Some(data)) => data,
+                                Ok(None) => break,
+                                Err(_) => {
+                                    info!("BLE 裝置 {} 超過 {} 秒沒有資料，視為斷線",
+                                          p_clone.address(), NOTIFY_STALL_TIMEOUT.as_secs());
+                                    break;
+                                }
+                            };
                             buf.extend_from_slice(&data.value);
 
                             // Use a read cursor so we only drain buf once per
