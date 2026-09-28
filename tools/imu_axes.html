@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-Hant">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>IMU 三軸姿態測試</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#111820;color:#e6edf3;font:15px system-ui,sans-serif}
+main{max-width:1320px;margin:auto;padding:24px}h1{font-size:24px;margin:0 0 8px}.muted{color:#9cabb9;font-size:13px;line-height:1.7}
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 310px;gap:18px;margin-top:20px}.card{background:#19232e;border:1px solid #31404e;border-radius:12px;padding:18px}
+canvas{width:100%;height:530px;display:block;touch-action:none;cursor:grab}.scene{padding:0;overflow:hidden}.legend{padding:14px 18px;border-top:1px solid #31404e}
+button,input,select{font:inherit;border:1px solid #4a5c6c;border-radius:6px;background:#243545;color:#edf5ff;padding:8px}button{cursor:pointer}button:disabled{opacity:.4;cursor:default}
+button:hover:not(:disabled){background:#36516a}.controls{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}input{width:80px}label{display:block;margin:14px 0 7px}
+.value{font:25px ui-monospace,Consolas,monospace;margin:5px 0 13px}.row{display:flex;justify-content:space-between;margin:13px 0}.red{color:#ff6474}.green{color:#57dfaa}.blue{color:#70acff}
+#status{color:#f8ca74;overflow-wrap:anywhere}#stats{white-space:pre-line}.note{margin-top:16px}.hint{color:#e9ba68}.records{max-height:140px;overflow:auto;font:12px monospace}
+@media(max-width:850px){.layout{grid-template-columns:1fr}canvas{height:420px}main{padding:12px}}
+</style>
+<main>
+<h1>IMU 三軸姿態測試 <span id="source" class="muted"></span></h1>
+<div class="muted">固定世界座標，Z 朝上。箭頭直接使用韌體四元數；原點固定，不代表平移位置。</div>
+<div class="layout"><section class="card scene"><canvas id="scene"></canvas>
+<div class="legend"><span class="red">● X</span>　<span class="green">● Y</span>　<span class="blue">● Z</span>　實線＝IMU　細灰線＝世界　虛線＝參考姿態
+<div class="muted">拖曳旋轉視角 · 滾輪縮放 · 記參考前先讓 IMU 靜置穩定</div></div></section>
+<aside class="card"><div id="status">等待連線…</div><div class="muted" id="stats"></div>
+<div class="row"><span>Roll / X</span><strong id="roll" class="red">—</strong></div>
+<div class="row"><span>Pitch / Y</span><strong id="pitch" class="green">—</strong></div>
+<div class="row"><span>Yaw / Z</span><strong id="yaw" class="blue">—</strong></div>
+<div class="controls"><button id="reference" disabled>記參考（R）</button><button id="clear">清除參考</button><button id="camera">重設視角</button></div>
+<label>相對參考的旋轉角</label><div id="relative" class="value">—</div>
+<label>預期繞「參考姿態」的哪一軸轉動</label>
+<select id="axis"><option value="0">X 軸</option><option value="1">Y 軸</option><option value="2" selected>Z 軸</option></select>
+<input id="expected" type="number" value="90" min="-360" max="360" step="1" aria-label="預期角度"> °
+<label>與預期姿態的角度誤差</label><div id="error" class="value">—</div>
+<div class="controls"><button id="record" disabled>記錄此筆比對</button><button id="export" disabled>匯出 CSV</button></div>
+<div class="records" id="records"></div></aside></div>
+<div class="muted note">右手定則：右手拇指朝箭頭正方向，四指彎曲方向為正角。Euler 順序為 Rz(yaw) · Ry(pitch) · Rx(roll)，pitch 接近 ±90° 時 roll/yaw 會有歧義，請以三軸箭頭及四元數角度誤差比對。</div>
+<div class="muted hint">磁力計未校正時，航向不等於精準磁北；六軸模式的 yaw 是相對方向且可能漂移。參考與預期角度由你手動設定，沒有外部定位真值。CSV 紀錄的是按下按鈕時的比對樣本。</div>
+</main>
+<script>
+'use strict';
+const $=id=>document.getElementById(id), canvas=$('scene'), ctx=canvas.getContext('2d');
+let latest=null, ref=null, refId=null, rows=[], online=false, receivedAt=0, referenceTime='', cameraAz=-1.05,cameraEl=.52,zoom=1;
+const colors=['#ff6474','#57dfaa','#70acff'], names=['X','Y','Z'];
+const dot=(a,b)=>a.reduce((s,v,i)=>s+v*b[i],0), clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
+const conjugate=q=>[-q[0],-q[1],-q[2],q[3]];
+function mul(a,b){const [x,y,z,w]=a,[X,Y,Z,W]=b;return [w*X+x*W+y*Z-z*Y,w*Y-x*Z+y*W+z*X,w*Z+x*Y-y*X+z*W,w*W-x*X-y*Y-z*Z]}
+function rotate(q,v){return mul(mul(q,[...v,0]),conjugate(q)).slice(0,3)}
+function angle(a,b){const d=mul(conjugate(a),b);return 2*Math.atan2(Math.hypot(...d.slice(0,3)),Math.abs(d[3]))*180/Math.PI}
+function euler(q){const [x,y,z,w]=q;return [Math.atan2(2*(w*x+y*z),1-2*(x*x+y*y)),Math.asin(clamp(2*(w*y-z*x),-1,1)),Math.atan2(2*(w*z+x*y),1-2*(y*y+z*z))].map(x=>x*180/Math.PI)}
+function expectedQ(){const n=Number($('expected').value);if(!Number.isFinite(n))return null;let q=[0,0,0,Math.cos(n*Math.PI/360)];q[Number($('axis').value)]=Math.sin(n*Math.PI/360);return ref?mul(ref,q):null}
+function fresh(){return online && latest?.quat && latest.age_ms+(performance.now()-receivedAt)<1000}
+function setReference(){if(!fresh())return;ref=[...latest.quat];refId=latest.id;referenceTime=new Date().toISOString()}
+$('reference').onclick=setReference;$('clear').onclick=()=>{ref=null;refId=null};
+$('camera').onclick=()=>{cameraAz=-1.05;cameraEl=.52;zoom=1};
+document.addEventListener('keydown',e=>{if(e.key.toLowerCase()==='r'&&!['INPUT','SELECT'].includes(e.target.tagName))setReference()});
+let dragging=null;
+canvas.onpointerdown=e=>{dragging=[e.clientX,e.clientY];canvas.setPointerCapture(e.pointerId)};
+canvas.onpointermove=e=>{if(!dragging)return;cameraAz-=(e.clientX-dragging[0])*.008;cameraEl=clamp(cameraEl+(e.clientY-dragging[1])*.008,-1.35,1.35);dragging=[e.clientX,e.clientY]};
+canvas.onpointerup=canvas.onpointercancel=()=>dragging=null;
+canvas.onwheel=e=>{e.preventDefault();zoom=clamp(zoom*Math.exp(-e.deltaY*.001),.6,1.8)};
+function project(v){const right=[-Math.sin(cameraAz),Math.cos(cameraAz),0],up=[-Math.sin(cameraEl)*Math.cos(cameraAz),-Math.sin(cameraEl)*Math.sin(cameraAz),Math.cos(cameraEl)],out=[Math.cos(cameraEl)*Math.cos(cameraAz),Math.cos(cameraEl)*Math.sin(cameraAz),Math.sin(cameraEl)];const scale=Math.min(canvas.clientWidth,canvas.clientHeight)*.26*zoom*4/(4-dot(v,out));return [canvas.clientWidth/2+dot(v,right)*scale,canvas.clientHeight/2-dot(v,up)*scale,dot(v,out)]}
+function line(a,b,color,width=1,dashed=false,label=''){const p=project(a),q=project(b);ctx.strokeStyle=color;ctx.fillStyle=color;ctx.lineWidth=width;ctx.setLineDash(dashed?[7,5]:[]);ctx.beginPath();ctx.moveTo(p[0],p[1]);ctx.lineTo(q[0],q[1]);ctx.stroke();ctx.setLineDash([]);if(label){const t=Math.atan2(q[1]-p[1],q[0]-p[0]),n=width>2?12:8;ctx.beginPath();ctx.moveTo(q[0],q[1]);ctx.lineTo(q[0]-n*Math.cos(t-.4),q[1]-n*Math.sin(t-.4));ctx.lineTo(q[0]-n*Math.cos(t+.4),q[1]-n*Math.sin(t+.4));ctx.closePath();ctx.fill();ctx.font='bold 15px system-ui';ctx.fillText(label,q[0]+10,q[1]-9)}}
+function axes(q,length,dashed=false){let vectors=names.map((_,i)=>rotate(q,[+(i===0)*length,+(i===1)*length,+(i===2)*length]));vectors.map((v,i)=>({v,i,z:project(v)[2]})).sort((a,b)=>a.z-b.z).forEach(({v,i})=>line([0,0,0],v,colors[i],dashed?1.5:4,dashed,dashed?'':names[i]))}
+function draw(){const dpr=window.devicePixelRatio||1,w=canvas.clientWidth,h=canvas.clientHeight;if(canvas.width!==Math.round(w*dpr)||canvas.height!==Math.round(h*dpr)){canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr)}ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);
+for(let i=-5;i<=5;i++){line([i*.25,-1.25,0],[i*.25,1.25,0],'#263440');line([-1.25,i*.25,0],[1.25,i*.25,0],'#263440')}
+names.forEach((name,i)=>{let end=[0,0,0];end[i]=1.5;line([0,0,0],end,'#7e8b99',1,false,'World '+name)});
+if(ref)axes(ref,1.15,true);if(latest?.quat){ctx.globalAlpha=fresh()?1:.3;axes(latest.quat,1);ctx.globalAlpha=1}
+const live=fresh();$('reference').disabled=!live;$('record').disabled=!live||!ref||!expectedQ();
+ctx.fillStyle=live?'#9cabb9':'#f8ca74';ctx.font='14px system-ui';ctx.fillText(live?'LIVE · 固定原點 / Z-up':latest?.quat?'資料中斷：保留最後姿態':'等待 IMU 資料',18,28);
+if(latest?.quat){const rpy=euler(latest.quat);['roll','pitch','yaw'].forEach((id,i)=>$(id).textContent=rpy[i].toFixed(2)+'°');$('relative').textContent=ref?angle(ref,latest.quat).toFixed(2)+'°':'—';$('error').textContent=ref&&expectedQ()?angle(expectedQ(),latest.quat).toFixed(2)+'°':'—'}
+requestAnimationFrame(draw)}
+async function poll(){try{const response=await fetch('/state',{cache:'no-store'});if(!response.ok)throw Error(response.status);const data=await response.json();online=true;receivedAt=performance.now();if(ref&&data.id!==undefined&&data.id!==refId){ref=null;refId=null}latest=data;$('source').textContent=data.source==='DEMO'?'DEMO 模擬資料':data.source;$('status').textContent=data.status;$('stats').textContent=`Tracker ${data.id??'—'} · ${data.hz} 次更新/s\n收到 ${data.received} · 無效 ${data.errors} · 延遲 ${data.age_ms??'—'} ms`;}catch(e){online=false;$('status').textContent='測試服務已斷線：'+e.message}setTimeout(poll,40)}
+$('record').onclick=()=>{if(!fresh()||!ref||!expectedQ())return;const q=latest.quat,rpy=euler(q);const row=[new Date().toISOString(),latest.source,latest.id,latest.sequence,referenceTime,names[Number($('axis').value)],Number($('expected').value),...ref,...q,...rpy,angle(ref,q),angle(expectedQ(),q),latest.age_ms];rows.push(row);$('records').textContent=`已記錄 ${rows.length} 筆；最近誤差 ${row.at(-2).toFixed(2)}°`;$('export').disabled=false};
+$('export').onclick=()=>{const header=['time_utc','source','tracker_id','sequence','reference_time_utc','reference_axis','expected_deg','ref_qx','ref_qy','ref_qz','ref_qw','qx','qy','qz','qw','roll_deg','pitch_deg','yaw_deg','relative_deg','orientation_error_deg','age_ms'];const blob=new Blob(['\ufeff'+[header,...rows].map(r=>r.map(x=>JSON.stringify(x??'')).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='imu_orientation_comparison.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};
+poll();draw();
+</script>
+</html>
