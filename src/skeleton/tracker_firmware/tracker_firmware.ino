@@ -19,12 +19,15 @@
 #define BATTERY_MAX_VOLTAGE    4.2f
 #define BATTERY_MIN_VOLTAGE    3.0f
 
-// Per-device magnetic calibration in the native Arduino_LSM9DS1 mag frame.
-// Replace these defaults with measured values; defaults are NOT a calibration.
-const bool USE_MAGNETOMETER = true;
-// Tracker 43 (D4:3F:A8:D9:D3:2B), tools/mag_calibrate.py, 2026-09-28.
-const float MAG_OFFSET_UT[3] = {25.70f, 22.09f, 10.04f};
-const float MAG_SCALE[3] = {0.9158f, 1.1117f, 0.9915f};
+// Per-device magnetometer calibration in the native Arduino_LSM9DS1 mag frame,
+// measured with tools/mag_calibrate.py and keyed by tracker ID (last MAC byte).
+// Trackers not listed run without the magnetometer: an uncalibrated hard-iron
+// offset drags the heading the wrong way, while gyro-only yaw merely drifts.
+struct MagCalibration { uint8_t id; float offset_ut[3]; float scale[3]; };
+const MagCalibration MAG_CALIBRATIONS[] = {
+  {43, {25.70f, 22.09f, 10.04f}, {0.9158f, 1.1117f, 0.9915f}},  // D4:3F:A8:D9:D3:2B, 2026-09-28
+};
+const MagCalibration* mag_cal = nullptr;  // set in setup() once the ID is known
 float gyro_bias_dps[3] = {0.0f, 0.0f, 0.0f};
 // Arduino_LSM9DS1 scales ±2000 dps as 2000/32768 dps/LSB; the datasheet
 // sensitivity is 70 mdps/LSB. Applied to the filter input only.
@@ -153,6 +156,10 @@ void setup() {
   BLE.setLocalName(deviceName.c_str());
 
   Serial.print("Tracker ID: ");  Serial.println(packet.id);
+  for (const MagCalibration& cal : MAG_CALIBRATIONS)
+    if (cal.id == packet.id) mag_cal = &cal;
+  Serial.println(mag_cal ? "Magnetometer: calibrated, enabled"
+                         : "Magnetometer: no calibration for this ID, disabled");
   Serial.print("BLE name:   ");  Serial.println(deviceName);
 
   BLE.setAdvertisedService(aetherposeService);
@@ -282,10 +289,10 @@ void updateSensorData() {
   // left-handed; flipping their X (after bias removal) aligns them with it.
   // https://github.com/jremington/LSM9DS1-AHRS/blob/main/Mahony_AHRS/MahonyUW_AHRS.ino
   float mx = 0.0f, my = 0.0f, mz = 0.0f;
-  if (USE_MAGNETOMETER && have_mag && millis() - last_mag_time < 200) {
-    mx = (packet.mag[0] - MAG_OFFSET_UT[0]) * MAG_SCALE[0];
-    my = (packet.mag[1] - MAG_OFFSET_UT[1]) * MAG_SCALE[1];
-    mz = (packet.mag[2] - MAG_OFFSET_UT[2]) * MAG_SCALE[2];
+  if (mag_cal && have_mag && millis() - last_mag_time < 200) {
+    mx = (packet.mag[0] - mag_cal->offset_ut[0]) * mag_cal->scale[0];
+    my = (packet.mag[1] - mag_cal->offset_ut[1]) * mag_cal->scale[1];
+    mz = (packet.mag[2] - mag_cal->offset_ut[2]) * mag_cal->scale[2];
   }
   FusionVector gyroscope = {.axis = {-(gx - gyro_bias_dps[0]) * GYRO_SENSITIVITY_FIX,
                                       (gy - gyro_bias_dps[1]) * GYRO_SENSITIVITY_FIX,
