@@ -23,7 +23,7 @@ fn test_process_with_authoritative_head() {
     for g in goals {
         match g {
             Goal::Rotation { bone_id: 4, .. } => found_rot = true,
-            Goal::Position { bone_id: 4, .. } => found_pos = true,
+            Goal::Anchor { bone_id: 4, .. } => found_pos = true,
             _ => {}
         }
     }

@@ -37,23 +37,26 @@ pub async fn run_ble_client(
     status_tx: Option<UnboundedSender<String>>,
     sync_quats: SyncQuatMap,
 ) {
+    // The page shows these; run_ble_manager restarts this client after a failure.
+    let report = |msg: String| { let _ = status_tx.as_ref().map(|s| s.send(msg)); };
     let manager = match Manager::new().await {
         Ok(m) => m,
-        Err(e) => { error!("BLE Manager 初始化失敗: {}", e); return; }
+        Err(e) => { error!("BLE Manager 初始化失敗: {}", e); report(format!("ble_unavailable:{}", e)); return; }
     };
     let adapters = match manager.adapters().await {
         Ok(a) => a,
-        Err(e) => { error!("無法取得 BLE Adapter: {}", e); return; }
+        Err(e) => { error!("無法取得 BLE Adapter: {}", e); report(format!("ble_unavailable:{}", e)); return; }
     };
     let adapter = match adapters.into_iter().next() {
         Some(a) => a,
-        None => { error!("找不到藍牙適配器"); return; }
+        None => { error!("找不到藍牙適配器"); report("ble_unavailable:no Bluetooth adapter".into()); return; }
     };
 
     info!("開始 BLE 掃描...");
     if let Err(e) = adapter.start_scan(ScanFilter::default()).await {
-        error!("啟動掃描失敗: {}", e); return;
+        error!("啟動掃描失敗: {}", e); report(format!("ble_unavailable:{}", e)); return;
     }
+    report("ble_scanning".into());
 
     let mut events = match adapter.events().await {
         Ok(e) => e,
@@ -88,9 +91,12 @@ pub async fn run_ble_client(
                         || p.services.contains(&TRACKER_SERVICE_UUID)
                 });
 
-                info!("[BLE] {} {:?} name={:?} target={}", ev_name, id, name, is_target);
-
-                if !is_target { continue; }
+                // Every nearby BLE device reports updates; only trackers are worth the info log.
+                if !is_target {
+                    log::debug!("[BLE] {} {:?} name={:?} (not a tracker)", ev_name, id, name);
+                    continue;
+                }
+                info!("[BLE] {} {:?} name={:?}", ev_name, id, name);
                 if let Ok(true) = peripheral.is_connected().await {
                     info!("[BLE] {:?} already connected, skip", id);
                     continue;

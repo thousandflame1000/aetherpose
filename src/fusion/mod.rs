@@ -5,4 +5,4 @@ pub mod confidence;
 pub mod fusion;
 pub mod weighting;
 
-pub use fusion::{AuthoritativePose, FusionEngine};
+pub use fusion::{AuthoritativePose, FusionEngine, LegCalibrationError};

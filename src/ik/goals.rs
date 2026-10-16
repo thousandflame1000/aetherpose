@@ -14,6 +14,12 @@ pub enum Goal {
         target_rotation: UnitQuaternion<f32>,
         weight: f32,
     },
+    /// Moves the whole body so this bone ends at the target once every rotation is set: the
+    /// head is where the headset is, wherever the player stands or crouches.
+    Anchor {
+        bone_id: BoneId,
+        target_position: Vector3<f32>,
+    },
     PosePrior {
         pose: SkeletonModel,
         weight: f32,
@@ -29,7 +35,9 @@ pub enum Goal {
 impl Goal {
     pub fn bone_id(&self) -> Option<BoneId> {
         match self {
-            Goal::Position { bone_id, .. } | Goal::Rotation { bone_id, .. } => Some(*bone_id),
+            Goal::Position { bone_id, .. } | Goal::Rotation { bone_id, .. } | Goal::Anchor { bone_id, .. } => {
+                Some(*bone_id)
+            }
             _ => None,
         }
     }

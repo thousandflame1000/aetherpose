@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const assert = require('node:assert/strict');
-const html = fs.readFileSync(path.join(__dirname, '../tools/imu_axes.html'), 'utf8');
+const html = fs.readFileSync(path.join(__dirname, '../webui/imu_axes.html'), 'utf8');
 const source = html.match(/<script>([\s\S]*?)<\/script>/)[1];
 const elements = new Map();
 function element(id) {
@@ -20,7 +20,9 @@ const sandbox = {
 };
 vm.createContext(sandbox);
 // Omit startup network/render calls; compile and test all original definitions.
-vm.runInContext(source.replace('poll();draw();', ''), sandbox);
+const startup = /const params=new URLSearchParams[\s\S]*$/;
+assert.ok(startup.test(source), 'page startup block found');
+vm.runInContext(source.replace(startup, ''), sandbox);
 const run = code => vm.runInContext(code, sandbox);
 const close = (a, b) => assert.ok(Math.abs(a-b) < 1e-8, `${a} != ${b}`);
 const vector = (actual, expected) => actual.forEach((v, i) => close(v, expected[i]));

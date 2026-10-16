@@ -142,18 +142,36 @@ impl ImuDataPacket {
     }
 }
 
+/// A sensor glitch, a firmware bug or a stray sender on the network can deliver NaN or
+/// infinite values; once inside the filters and the IK they would never wash out.
+fn all_finite(values: &[f32]) -> bool {
+    values.iter().all(|value| value.is_finite())
+}
+
 fn raw_v1_is_valid(raw: &RawImuPacketV1) -> bool {
+    // Copies: a packed struct's fields cannot be borrowed.
+    let (gyro, accel, mag) = (raw.gyro, raw.accel, raw.mag);
     raw.packet_type == PACKET_TYPE_RAW_IMU
         && raw.batt <= 100
         && raw.dt > 0.0
         && raw.dt <= 1.0
+        && all_finite(&gyro)
+        && all_finite(&accel)
+        && all_finite(&mag)
 }
 
 fn raw_v2_is_valid(raw: &RawImuPacketV2) -> bool {
+    let (gyro, accel, mag, quat) = (raw.gyro, raw.accel, raw.mag, raw.quat);
+    let norm = quat.iter().map(|value| value * value).sum::<f32>().sqrt();
     raw.packet_type == PACKET_TYPE_IMU_V2
         && raw.batt <= 100
         && raw.dt > 0.0
         && raw.dt <= 1.0
+        && all_finite(&gyro)
+        && all_finite(&accel)
+        && all_finite(&mag)
+        && all_finite(&quat)
+        && (0.5..=1.5).contains(&norm)  // a unit quaternion; zero cannot be normalised
 }
 
 fn crc16_ccitt_false(data: &[u8]) -> u16 {
@@ -243,6 +261,34 @@ mod tests {
         let pkt = ImuDataPacket::from_bytes(bytes).unwrap();
         assert_eq!(pkt.id, 2);
         assert!(pkt.quat.is_some());
+    }
+
+    fn v1_bytes(raw: &RawImuPacketV1) -> Vec<u8> {
+        unsafe { std::slice::from_raw_parts((raw as *const RawImuPacketV1) as *const u8, mem::size_of::<RawImuPacketV1>()) }.to_vec()
+    }
+
+    fn v2_bytes(raw: &RawImuPacketV2) -> Vec<u8> {
+        unsafe { std::slice::from_raw_parts((raw as *const RawImuPacketV2) as *const u8, mem::size_of::<RawImuPacketV2>()) }.to_vec()
+    }
+
+    #[test]
+    fn non_finite_or_degenerate_values_are_dropped() {
+        let broken_v2: [fn(&mut RawImuPacketV2); 5] = [
+            |raw| raw.accel = [f32::NAN, 0.0, 9.81],
+            |raw| raw.gyro = [f32::INFINITY, 0.0, 0.0],
+            |raw| raw.mag = [0.0, f32::NEG_INFINITY, 0.0],
+            |raw| raw.quat = [0.0, 0.0, 0.0, f32::NAN],
+            |raw| raw.quat = [0.0; 4],
+        ];
+        for (case, break_packet) in broken_v2.iter().enumerate() {
+            let mut raw = make_v2(3, 1, 90);
+            break_packet(&mut raw);
+            assert!(ImuDataPacket::from_bytes(&v2_bytes(&raw)).is_none(), "v2 case {case}");
+        }
+        let mut raw = make_v1(3, 1, 90);
+        raw.mag = [f32::NAN, 0.0, 0.0];
+        assert!(ImuDataPacket::from_bytes(&v1_bytes(&raw)).is_none());
+        assert!(ImuDataPacket::from_bytes(&v2_bytes(&make_v2(3, 1, 90))).is_some());
     }
 
     #[test]

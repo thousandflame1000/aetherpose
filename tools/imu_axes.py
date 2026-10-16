@@ -10,6 +10,7 @@ import asyncio
 import binascii
 import json
 import math
+import os
 import struct
 import threading
 import time
@@ -117,7 +118,7 @@ async def ble_source(args, state, stop):
     from bleak import BleakClient, BleakScanner
     while not stop.is_set():
         try:
-            state.set_status("Scanning BLE…")
+            state.set_status("正在搜尋藍牙追蹤器…")
             devices = await BleakScanner.discover(timeout=5, return_adv=True)
             candidates = []
             for device, adv in devices.values():
@@ -132,8 +133,8 @@ async def ble_source(args, state, stop):
                     candidates.append(device)
             if len(candidates) != 1:
                 found = "; ".join(f"{d.name} [{d.address}]" for d in candidates)
-                state.set_status("No tracker found; power on the IMU / close the other BLE app." if not candidates
-                                 else f"Multiple trackers: {found}. Restart with --address ADDRESS or --id ID.")
+                state.set_status("找不到追蹤器：請打開 IMU，並關掉其他正在連線的藍牙程式（包括後端）。" if not candidates
+                                 else f"找到多顆追蹤器：{found}。請加上 --address 位址 或 --id ID 重新啟動。")
                 await asyncio.sleep(2)
                 continue
             device = candidates[0]
@@ -147,12 +148,12 @@ async def ble_source(args, state, stop):
                     with state.lock:
                         state.errors += decoder.errors - before
                 await client.start_notify(CHARACTERISTIC, notify)
-                state.set_status(f"BLE connected: {device.name} [{device.address}]")
+                state.set_status(f"藍牙已連線：{device.name} [{device.address}]")
                 while client.is_connected and not stop.is_set():
                     await asyncio.sleep(0.1)
-            state.set_status("BLE disconnected; reconnecting…")
+            state.set_status("藍牙中斷，重新連線中…")
         except Exception as exc:
-            state.set_status(f"BLE error: {exc}")
+            state.set_status(f"藍牙錯誤：{exc}")
             await asyncio.sleep(2)
 
 
@@ -161,7 +162,7 @@ async def ws_source(args, state, stop):
     while not stop.is_set():
         try:
             async with websockets.connect(args.ws) as ws:
-                state.set_status("Backend connected; reading unmodified device rotation")
+                state.set_status("已連線後端，讀取韌體四元數")
                 previous = None
                 while not stop.is_set():
                     try:
@@ -173,7 +174,7 @@ async def ws_source(args, state, stop):
                     trackers = message.get("data", {}).get("trackers", {})
                     choices = [v for v in trackers.values() if args.id is None or v["id"] == args.id]
                     if len(choices) != 1:
-                        state.set_status("Select one tracker with --id ID. Available: " + ", ".join(trackers))
+                        state.set_status("請用 --id ID 選一顆追蹤器，目前有：" + ", ".join(trackers))
                         continue
                     t = choices[0]
                     key = (t["id"], t.get("received_packets"), t.get("last_sequence"))
@@ -184,14 +185,14 @@ async def ws_source(args, state, stop):
                                       quat=t.get("rotation"), accel=t.get("accel"),
                                       mag=t.get("mag"), battery=t.get("battery")),
                                  age=float(t.get("last_update_ms", 0)) / 1000)
-                    state.set_status(f"Backend tracker {t['id']}")
+                    state.set_status(f"後端追蹤器 {t['id']}")
         except Exception as exc:
-            state.set_status(f"Backend connection error: {exc}")
+            state.set_status(f"後端連線錯誤：{exc}")
             await asyncio.sleep(2)
 
 
 async def demo_source(_args, state, stop):
-    state.set_status("DEMO — synthetic rotation, not a real IMU")
+    state.set_status("示範模式：模擬的旋轉，不是真的 IMU")
     started = time.monotonic()
     while not stop.is_set():
         t = time.monotonic() - started
@@ -225,7 +226,8 @@ def main():
         parser.error("Install the dependency: python -m pip install " + ("websockets" if args.ws else "bleak"))
     state = LiveState("DEMO" if args.demo else ("Backend" if args.ws else "Direct BLE"))
     stop = threading.Event()
-    page = Path(__file__).with_suffix(".html").read_bytes()
+    # The same page is served by the web UI, where it reads the backend directly.
+    page = (Path(__file__).resolve().parents[1] / "webui" / "imu_axes.html").read_bytes()
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -250,7 +252,12 @@ def main():
         def log_message(self, _format, *_args):
             pass
 
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
+    # HTTPServer sets SO_REUSEADDR, which on Windows lets a second instance share a listening port.
+    server_class = type("Server", (ThreadingHTTPServer,), {"allow_reuse_address": os.name != "nt"})
+    try:
+        server = server_class(("127.0.0.1", args.port), Handler)
+    except OSError as exc:
+        parser.error(f"cannot listen on 127.0.0.1:{args.port} ({exc}); is the tool already running? Use --port")
     worker_fn = demo_source if args.demo else (ws_source if args.ws else ble_source)
     worker = threading.Thread(target=lambda: asyncio.run(worker_fn(args, state, stop)), daemon=True)
     worker.start()

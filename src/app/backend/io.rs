@@ -10,13 +10,16 @@ impl BackendRuntime {
         let ble_stats = self.bp_stats.clone();
         let (status_tx, status_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
 
+        // BLE status reaches the page through the snapshot's ble_status, not
+        // as a serial status message.
         Self::spawn_status_forwarder(
             self.tx.clone(),
             self.serial_running_flag.clone(),
-            None,
+            Some(self.ble_status_shared.clone()),
             status_rx,
-            "status_ble.log",
+            "logs/status_ble.log",
             "BLE",
+            false,
         );
 
         let sync_quats_clone = self.sync_quats.clone();
@@ -53,8 +56,9 @@ impl BackendRuntime {
             self.serial_running_flag.clone(),
             Some(self.serial_status_shared.clone()),
             status_rx,
-            "status_serial.log",
+            "logs/status_serial.log",
             "SERIAL",
+            true,
         );
 
         tokio::spawn(async move {
@@ -96,10 +100,18 @@ impl BackendRuntime {
                     0.0
                 };
 
-                info!(
-                    "Backpress stats (1s): sent={} dropped_full={} disconnected={} avg_try_send_ms={:.6}",
-                    sent, dropped_full, disconnected, avg_ms
-                );
+                // Logged every second only when packets were lost; otherwise at debug level.
+                if dropped_full > 0 || disconnected > 0 {
+                    warn!(
+                        "Backpress stats (1s): sent={} dropped_full={} disconnected={} avg_try_send_ms={:.6}",
+                        sent, dropped_full, disconnected, avg_ms
+                    );
+                } else {
+                    log::debug!(
+                        "Backpress stats (1s): sent={} avg_try_send_ms={:.6}",
+                        sent, avg_ms
+                    );
+                }
             }
         });
     }
@@ -111,6 +123,7 @@ impl BackendRuntime {
         mut status_rx: UnboundedReceiver<String>,
         log_path: &'static str,
         source_tag: &'static str,
+        send_serial_status: bool,
     ) {
         tokio::spawn(async move {
             while let Some(msg) = status_rx.recv().await {
@@ -128,10 +141,12 @@ impl BackendRuntime {
                 );
                 append_and_rotate_log(log_path, &line);
 
-                let _ = tx.send(GuiUpdate::status(
-                    serial_running_flag.load(Ordering::Relaxed),
-                    Some(msg),
-                ));
+                if send_serial_status {
+                    let _ = tx.send(GuiUpdate::status(
+                        serial_running_flag.load(Ordering::Relaxed),
+                        Some(msg),
+                    ));
+                }
             }
         });
     }

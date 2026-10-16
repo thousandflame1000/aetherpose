@@ -7,6 +7,42 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+/// Every recording goes here (relative to the backend's working folder, the project root).
+pub const RECORDINGS_DIR: &str = "recordings";
+
+/// Windows maps these names, with any extension, to devices: "nul.csv" would discard the data.
+fn is_device_name(name: &str) -> bool {
+    let stem = name.split('.').next().unwrap_or("").trim_end().to_ascii_uppercase();
+    matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || ((stem.starts_with("COM") || stem.starts_with("LPT"))
+            && stem.len() == 4
+            && stem.as_bytes()[3].is_ascii_digit()
+            && stem.as_bytes()[3] != b'0')
+}
+
+/// Creates the recording file before the start is reported, so a name the system cannot use
+/// fails the start instead of recording nothing. An existing recording is never overwritten:
+/// "walk.csv" becomes "walk_2.csv", "walk_3.csv", ...
+fn create_unused(name: &str) -> std::io::Result<(String, File)> {
+    if is_device_name(name) {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, format!("{} is a reserved device name", name)));
+    }
+    let (stem, extension) = match name.rfind('.') {
+        Some(dot) if dot > 0 => (&name[..dot], &name[dot..]),
+        _ => (name, ""),
+    };
+    for attempt in 1..=1000 {
+        let candidate = if attempt == 1 { name.to_string() } else { format!("{}_{}{}", stem, attempt, extension) };
+        let path = format!("{}/{}", RECORDINGS_DIR, candidate);
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(file) => return Ok((path, file)),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    Err(std::io::Error::new(std::io::ErrorKind::AlreadyExists, format!("{} and 999 numbered copies already exist", name)))
+}
+
 /// Recorder now sends CSV lines to a background thread to avoid blocking the main loop.
 pub struct Recorder {
     tx: Sender<String>,
@@ -32,6 +68,15 @@ impl Recorder {
         batch_size: usize,
         flush_interval: Duration,
     ) -> std::io::Result<Self> {
+        // Only the file name of the requested path is kept, so a name sent
+        // from the page cannot point outside the recordings folder.
+        let name = std::path::Path::new(&filename)
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .filter(|name| !name.is_empty())
+            .unwrap_or_else(|| format!("recording_{}.csv", Local::now().format("%Y-%m-%d_%H-%M-%S")));
+        std::fs::create_dir_all(RECORDINGS_DIR)?;
+        let (filename, mut file) = create_unused(&name)?;
 
         // 動態生成 CSV 標頭
         let mut header = "timestamp_ms,".to_string();
@@ -50,62 +95,54 @@ impl Recorder {
         let dropped_count = Arc::new(AtomicU64::new(0));
         let write_error_count = Arc::new(AtomicU64::new(0));
 
+        writeln!(file, "{}", header)?;
+
         // Spawn background thread to own the file and perform batched I/O
         let filename_clone = filename.clone();
-        let header_clone = header.clone();
         let write_error_count_bg = write_error_count.clone();
         let batch_size_local = batch_size;
         let flush_interval_local = flush_interval;
         std::thread::spawn(move || {
-            match File::create(&filename_clone) {
-                Ok(mut file) => {
-                    let _ = writeln!(file, "{}", header_clone);
-                    let mut buf: Vec<String> = Vec::with_capacity(batch_size_local);
-                    let mut last_flush = Instant::now();
-                    loop {
-                        // try receive with timeout to allow periodic flush
-                        match rx.recv_timeout(Duration::from_millis(100)) {
-                            Ok(line) => {
-                                buf.push(line);
-                                // flush if batch full
-                                if buf.len() >= batch_size_local {
-                                    if let Err(e) = write_batch(&mut file, &mut buf) {
-                                        log::error!("錄製寫入失敗: {}", e);
-                                        write_error_count_bg.fetch_add(1, Ordering::Relaxed);
-                                        // backoff briefly before retrying
-                                        std::thread::sleep(Duration::from_millis(200));
-                                    }
-                                    last_flush = Instant::now();
-                                }
+            let mut buf: Vec<String> = Vec::with_capacity(batch_size_local);
+            let mut last_flush = Instant::now();
+            loop {
+                // try receive with timeout to allow periodic flush
+                match rx.recv_timeout(Duration::from_millis(100)) {
+                    Ok(line) => {
+                        buf.push(line);
+                        // flush if batch full
+                        if buf.len() >= batch_size_local {
+                            if let Err(e) = write_batch(&mut file, &mut buf) {
+                                log::error!("錄製寫入失敗: {}", e);
+                                write_error_count_bg.fetch_add(1, Ordering::Relaxed);
+                                // backoff briefly before retrying
+                                std::thread::sleep(Duration::from_millis(200));
                             }
-                            Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
-                                // timed out - check flush interval
-                                if !buf.is_empty() && last_flush.elapsed() >= flush_interval_local {
-                                    if let Err(e) = write_batch(&mut file, &mut buf) {
-                                        log::error!("錄製寫入失敗: {}", e);
-                                        write_error_count_bg.fetch_add(1, Ordering::Relaxed);
-                                        std::thread::sleep(Duration::from_millis(200));
-                                    }
-                                    last_flush = Instant::now();
-                                }
-                            }
-                            Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
-                                // Channel closed - flush remaining and exit
-                                if !buf.is_empty() {
-                                    if let Err(e) = write_batch(&mut file, &mut buf) {
-                                        log::error!("錄製寫入失敗: {}", e);
-                                    }
-                                }
-                                let _ = file.flush();
-                                log::info!("錄製檔案已關閉: {}", filename_clone);
-                                break;
-                            }
+                            last_flush = Instant::now();
                         }
                     }
-                }
-                Err(e) => {
-                    log::error!("無法建立錄製檔案: {}", filename_clone);
-                    let _ = e;
+                    Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
+                        // timed out - check flush interval
+                        if !buf.is_empty() && last_flush.elapsed() >= flush_interval_local {
+                            if let Err(e) = write_batch(&mut file, &mut buf) {
+                                log::error!("錄製寫入失敗: {}", e);
+                                write_error_count_bg.fetch_add(1, Ordering::Relaxed);
+                                std::thread::sleep(Duration::from_millis(200));
+                            }
+                            last_flush = Instant::now();
+                        }
+                    }
+                    Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
+                        // Channel closed - flush remaining and exit
+                        if !buf.is_empty() {
+                            if let Err(e) = write_batch(&mut file, &mut buf) {
+                                log::error!("錄製寫入失敗: {}", e);
+                            }
+                        }
+                        let _ = file.flush();
+                        log::info!("錄製檔案已關閉: {}", filename_clone);
+                        break;
+                    }
                 }
             }
         });

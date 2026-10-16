@@ -20,7 +20,7 @@
 #define BATTERY_MIN_VOLTAGE    3.0f
 
 // Per-device magnetometer calibration in the native Arduino_LSM9DS1 mag frame,
-// measured with tools/mag_calibrate.py and keyed by tracker ID (last MAC byte).
+// measured with tools/calibrate_tracker.py and keyed by tracker ID (last MAC byte).
 // Trackers not listed run without the magnetometer: an uncalibrated hard-iron
 // offset drags the heading the wrong way, while gyro-only yaw merely drifts.
 struct MagCalibration { uint8_t id; float offset_ut[3]; float scale[3]; };

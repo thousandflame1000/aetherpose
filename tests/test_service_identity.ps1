@@ -1,0 +1,22 @@
+$ErrorActionPreference = 'Stop'
+$root = Split-Path $PSScriptRoot -Parent
+. (Join-Path $root 'webui\services.ps1')
+function Assert($Condition, $Name) { if (-not $Condition) { throw "FAIL: $Name" } }
+$backend = Join-Path $root 'target\release\aetherpose.exe'
+$bridge = Join-Path $root 'frontend\mesh_bridge.py'
+$web = Join-Path $root 'webui'
+Assert (Test-AetherService @{ExecutablePath=$backend} 'backend' $root) 'own backend'
+Assert (-not (Test-AetherService @{ExecutablePath='C:\other\aetherpose.exe'} 'backend' $root)) 'foreign backend'
+Assert (Test-AetherService @{CommandLine="python -u `"$bridge`""} 'bridge' $root) 'own bridge'
+Assert (-not (Test-AetherService @{CommandLine='python -u mesh_bridge.py'} 'bridge' $root)) 'ambiguous relative bridge'
+Assert (-not (Test-AetherService @{CommandLine="python -u `"${bridge}.other`""} 'bridge' $root)) 'bridge path suffix'
+Assert (Test-AetherService @{CommandLine="python -u `"$web\server.py`" --port 18080"} 'http' $root) 'own page server'
+Assert (-not (Test-AetherService @{CommandLine='python -u "C:\other\webui\server.py" --port 18080'} 'http' $root)) 'foreign page server'
+Assert (-not (Test-AetherService @{CommandLine='python -u server.py --port 18080'} 'http' $root)) 'ambiguous relative page server'
+Assert (Test-AetherService @{CommandLine="python -m http.server 18080 --directory `"$web`""} 'http' $root) 'own legacy HTTP'
+Assert (Test-AetherLegacyHttp @{CommandLine="python -m http.server 18080 --directory `"$web`""} $root) 'legacy HTTP is replaceable'
+Assert (-not (Test-AetherLegacyHttp @{CommandLine="python -u `"$web\server.py`""} $root)) 'page server is not legacy'
+Assert (-not (Test-AetherService @{CommandLine='python -m http.server 18080 --directory "C:\other"'} 'http' $root)) 'foreign HTTP'
+Assert (-not (Test-AetherService @{CommandLine="python other.py --directory `"$web`""} 'http' $root)) 'wrong HTTP module'
+Assert (-not (Test-AetherService $null 'backend' $root)) 'missing process'
+Write-Host 'PASS: 14 service identity checks'

@@ -30,6 +30,8 @@ const QUEST_BRIDGE_PORT: u16 = 9002;
 const UDP_PACKET_BUDGET_PER_TICK: usize = 50;
 const DEFAULT_RECORDER_BATCH_SIZE: usize = 128;
 const DEFAULT_RECORDER_FLUSH_INTERVAL_MS: u64 = 500;
+/// Slider drags send a command per input event; write config.json at most this often.
+const CONFIG_SAVE_INTERVAL: Duration = Duration::from_millis(500);
 
 pub async fn run(
     shared_skel: Arc<RwLock<SkeletonModel>>,
@@ -41,13 +43,17 @@ pub async fn run(
         head: None,
         left_hand: None,
         right_hand: None,
+        received_at: None,
     });
 
-    let socket = match net::bind_udp_socket(config.osc_port).await {
-        Ok(socket) => socket,
+    // UDP tracker input has its own port: the OSC output goes to osc_port
+    // (VRChat listens there), so sharing it looped our own OSC back in and a
+    // running VRChat made the bind, and with it the whole backend, fail.
+    let socket = match net::bind_udp_socket(config.udp_input_port).await {
+        Ok(socket) => Some(socket),
         Err(e) => {
-            error!("Net socket bind failed: {}", e);
-            return;
+            error!("UDP tracker input disabled: port {} bind failed: {}", config.udp_input_port, e);
+            None
         }
     };
 
@@ -65,7 +71,7 @@ struct BackendRuntime {
     tx: mpsc::Sender<GuiUpdate>,
     cmd_rx: mpsc::Receiver<BackendCommand>,
     config: AppConfig,
-    socket: UdpSocket,
+    socket: Option<UdpSocket>,
     quest_rx: watch::Receiver<QuestInputData>,
     skeleton: SkeletonModel,
     t_pose: SkeletonModel,
@@ -90,7 +96,6 @@ struct BackendRuntime {
     prop_leg: f32,
     prop_arm: f32,
     prop_spine: f32,
-    mag_calibrating_tracker_id: Option<u8>,
     leg_ratio: f32,
     floor_offset: f32,
     pending_shake_bone: Option<u8>,
@@ -100,7 +105,17 @@ struct BackendRuntime {
     tracker_consec_lost: HashMap<u8, u32>,
     /// Per-tracker consecutive good packet counter (resets on any lost packet)
     tracker_consec_good: HashMap<u8, u32>,
-
+    config_dirty: bool,
+    last_config_save: Option<std::time::Instant>,
+    /// Latest BLE status line, shown on the page; a change publishes a snapshot.
+    ble_status_shared: Arc<Mutex<Option<String>>>,
+    published_ble_status: Option<String>,
+    /// Outcome of the last leg calibration, for the page (see WsSnapshot).
+    leg_calibration_result: Option<String>,
+    /// Why recording could not start or stopped by itself (see WsSnapshot).
+    recorder_error: Option<String>,
+    /// Why the last OSC target could not be used (see WsSnapshot).
+    osc_error: Option<String>,
 }
 
 impl BackendRuntime {
@@ -109,7 +124,7 @@ impl BackendRuntime {
         tx: mpsc::Sender<GuiUpdate>,
         cmd_rx: mpsc::Receiver<BackendCommand>,
         config: AppConfig,
-        socket: UdpSocket,
+        socket: Option<UdpSocket>,
         quest_rx: watch::Receiver<QuestInputData>,
     ) -> Self {
         let mut skeleton = match shared_skel.read() {
@@ -123,11 +138,11 @@ impl BackendRuntime {
         let t_pose = skeleton.clone();
         let mut fusion = FusionEngine::new();
         let ik_solver = IkSolver::new();
-        let osc_sender = match OscSender::new(&config.osc_ip, config.osc_port).await {
-            Ok(sender) => Some(sender),
+        let (osc_sender, osc_error) = match OscSender::new(&config.osc_ip, config.osc_port).await {
+            Ok(sender) => (Some(sender), None),
             Err(e) => {
                 error!("OSC sender init failed: {}", e);
-                None
+                (None, Some(format!("{}:{} ({})", config.osc_ip, config.osc_port, e)))
             }
         };
 
@@ -136,7 +151,6 @@ impl BackendRuntime {
         fusion.smoothing_beta = config.smoothing_beta;
         fusion.set_trajectory_integration_mode(config.trajectory_integration_mode);
         fusion.set_zupt_enabled(config.zupt_enabled);
-        fusion.mag_calibrations = config.mag_calibrations.clone();
         fusion.set_zupt_params(
             config.zupt_window_size,
             config.zupt_accel_var_threshold,
@@ -144,6 +158,7 @@ impl BackendRuntime {
         );
 
         skeleton.adjust_proportions(config.prop_leg, config.prop_arm, config.prop_spine);
+        fusion.assigner.unassigned.extend(config.unassigned_trackers.iter().copied());
         for (tracker_id, bone_id) in &config.tracker_assignments {
             fusion.assigner.set_assignment(*tracker_id, *bone_id);
         }
@@ -179,15 +194,68 @@ impl BackendRuntime {
             prop_leg: config.prop_leg,
             prop_arm: config.prop_arm,
             prop_spine: config.prop_spine,
-            mag_calibrating_tracker_id: None,
             leg_ratio: config.leg_ratio,
             floor_offset: config.floor_offset,
             pending_shake_bone: None,
             sync_quats: Arc::new(Mutex::new(HashMap::new())),
             tracker_consec_lost: HashMap::new(),
             tracker_consec_good: HashMap::new(),
+            config_dirty: false,
+            last_config_save: None,
+            ble_status_shared: Arc::new(Mutex::new(None)),
+            published_ble_status: None,
+            leg_calibration_result: None,
+            recorder_error: None,
+            osc_error,
             config,
         }
+    }
+
+    /// Record a settings change; run_loop writes config.json shortly after.
+    fn mark_config_changed(&mut self) {
+        self.config_dirty = true;
+    }
+
+    fn save_config_if_due(&mut self) {
+        if !self.config_dirty
+            || self.last_config_save.is_some_and(|at| at.elapsed() < CONFIG_SAVE_INTERVAL)
+        {
+            return;
+        }
+        self.config.save();
+        self.config_dirty = false;
+        self.last_config_save = Some(std::time::Instant::now());
+    }
+
+    fn current_ble_status(&self) -> Option<String> {
+        self.ble_status_shared.lock().ok().and_then(|status| status.clone())
+    }
+
+    /// True once per BLE status change, so idle pages still see it.
+    fn ble_status_changed(&mut self) -> bool {
+        let status = self.current_ble_status();
+        if status == self.published_ble_status {
+            return false;
+        }
+        self.published_ble_status = status;
+        true
+    }
+
+    /// Copy the assignments of connected trackers into the saved config.
+    fn persist_assignments(&mut self) {
+        for tracker_id in self.net_trackers.keys() {
+            if let Some(bone_id) = self.fusion.assigner.get_bone_id(*tracker_id) {
+                self.config.tracker_assignments.insert(*tracker_id, bone_id);
+            }
+        }
+        self.sync_unassigned_config();
+        self.mark_config_changed();
+    }
+
+    fn sync_unassigned_config(&mut self) {
+        let mut unassigned: Vec<u8> = self.fusion.assigner.unassigned.iter().copied().collect();
+        unassigned.sort();
+        self.config.unassigned_trackers = unassigned;
     }
 
     async fn run_loop(&mut self) {
@@ -199,6 +267,10 @@ impl BackendRuntime {
             let quest_dirty = self.quest_rx.has_changed().unwrap_or(false);
 
             if self.handle_commands().await {
+                snapshot_dirty = true;
+            }
+            self.save_config_if_due();
+            if self.ble_status_changed() {
                 snapshot_dirty = true;
             }
 

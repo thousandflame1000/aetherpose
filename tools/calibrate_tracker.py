@@ -14,7 +14,6 @@ import argparse
 import asyncio
 import datetime
 import json
-import math
 import re
 import shutil
 import subprocess
@@ -56,19 +55,19 @@ def fit_ellipsoid(samples: np.ndarray):
 
 def quality_problems(fit, n: int) -> list[str]:
     if fit is None:
-        return ["samples do not form an ellipsoid; tumble through more orientations"]
+        return ["樣本沒有形成橢球：請把追蹤器轉過更多方向"]
     problems = []
     if n < MIN_SAMPLES:
-        problems.append(f"only {n} samples (need {MIN_SAMPLES})")
+        problems.append(f"只有 {n} 筆樣本（需要 {MIN_SAMPLES} 筆）")
     for axis, cov in zip("xyz", fit["coverage"]):
         if cov < MIN_COVERAGE:
-            problems.append(f"{axis} axis covered {cov:.0%} (need {MIN_COVERAGE:.0%}): rotate it further")
+            problems.append(f"{axis} 軸涵蓋率 {cov:.0%}（需要 {MIN_COVERAGE:.0%}）：請轉得更完整")
     lo, hi = FIELD_RANGE_UT
     if not lo <= fit["field"] <= hi:
-        problems.append(f"fitted field {fit['field']:.1f} uT outside {lo:.0f}-{hi:.0f} uT")
+        problems.append(f"擬合磁場 {fit['field']:.1f} uT 不在 {lo:.0f}–{hi:.0f} uT 之間")
     if fit["rel_rms"] > MAX_REL_RMS:
-        problems.append(f"fit residual {fit['rel_rms']:.1%} (max {MAX_REL_RMS:.0%}); "
-                        "keep away from metal/electronics and move slowly")
+        problems.append(f"擬合殘差 {fit['rel_rms']:.1%}（上限 {MAX_REL_RMS:.0%}）："
+                        "請遠離金屬與電子產品，並慢慢轉動")
     return problems
 
 
@@ -77,8 +76,8 @@ async def record(backend: str, tracker_id: int, max_seconds: float) -> np.ndarra
     samples, previous = [], None
     last_report = 0.0
     async with websockets.connect(backend, max_size=None) as ws:
-        print(f"Connected to backend. Tumble tracker {tracker_id} now "
-              f"(stops at {TARGET_COVERAGE:.0%} coverage, max {max_seconds:.0f}s).")
+        print(f"已連線後端。請慢慢把追蹤器 {tracker_id} 轉過各個方向"
+              f"（三軸涵蓋率達 {TARGET_COVERAGE:.0%} 自動停止，最多 {max_seconds:.0f} 秒）。")
         end = time.monotonic() + max_seconds
         while time.monotonic() < end:
             try:
@@ -103,11 +102,11 @@ async def record(backend: str, tracker_id: int, max_seconds: float) -> np.ndarra
                 last_report = now
                 fit = fit_ellipsoid(np.array(samples))
                 if fit is None:
-                    print(f"\r  {len(samples):4d} samples  keep tumbling...".ljust(78), end="", flush=True)
+                    print(f"\r  {len(samples):4d} 筆  繼續轉動…".ljust(78), end="", flush=True)
                     continue
                 cov = fit["coverage"]
-                print(f"\r  {len(samples):4d} samples  coverage x {cov[0]:4.0%} y {cov[1]:4.0%} "
-                      f"z {cov[2]:4.0%}  field {fit['field']:5.1f} uT".ljust(78), end="", flush=True)
+                print(f"\r  {len(samples):4d} 筆  涵蓋率 x {cov[0]:4.0%} y {cov[1]:4.0%} "
+                      f"z {cov[2]:4.0%}  磁場 {fit['field']:5.1f} uT".ljust(78), end="", flush=True)
                 if len(samples) >= MIN_SAMPLES and np.all(cov >= TARGET_COVERAGE):
                     break
     print()
@@ -118,7 +117,7 @@ def write_calibration(tracker_id: int, fit) -> None:
     text = FIRMWARE.read_text(encoding="utf-8")
     block = re.search(r"(const MagCalibration MAG_CALIBRATIONS\[\] = \{\n)(.*?)(\n\};)", text, re.S)
     if not block:
-        sys.exit(f"MAG_CALIBRATIONS table not found in {FIRMWARE}")
+        sys.exit(f"在 {FIRMWARE} 找不到 MAG_CALIBRATIONS 校正表")
     o, s = fit["offset"], fit["scale"]
     entry = (f"  {{{tracker_id}, {{{o[0]:.2f}f, {o[1]:.2f}f, {o[2]:.2f}f}}, "
              f"{{{s[0]:.4f}f, {s[1]:.4f}f, {s[2]:.4f}f}}}},  "
@@ -128,14 +127,15 @@ def write_calibration(tracker_id: int, fit) -> None:
     lines.sort(key=lambda l: int(re.match(r"\s*\{(\d+),", l).group(1)) if re.match(r"\s*\{(\d+),", l) else 0)
     text = text[:block.start(2)] + "\n".join(lines) + text[block.end(2):]
     FIRMWARE.write_text(text, encoding="utf-8", newline="\n")
-    print(f"Wrote tracker {tracker_id} into {FIRMWARE.relative_to(ROOT)}:\n{entry}")
+    where = FIRMWARE.relative_to(ROOT) if FIRMWARE.is_relative_to(ROOT) else FIRMWARE
+    print(f"已把追蹤器 {tracker_id} 的校正值寫入 {where}：\n{entry}")
 
 
 def arduino_cli() -> str:
     local = ROOT / ".arduino-cli" / "arduino-cli.exe"
     found = str(local) if local.exists() else shutil.which("arduino-cli")
     if not found:
-        sys.exit("arduino-cli not found (expected .arduino-cli/arduino-cli.exe or on PATH)")
+        sys.exit("找不到 arduino-cli（應在 .arduino-cli/arduino-cli.exe 或 PATH 中）")
     return found
 
 
@@ -148,11 +148,11 @@ def flash() -> str:
     cli = arduino_cli()
     port = nano_port(cli)
     if not port:
-        sys.exit("No Nano 33 BLE on USB. Calibration is saved; plug a tracker in and rerun with --flash-only.")
-    print(f"Compiling and flashing via {port} (keep the tracker still for the boot gyro calibration)...")
+        sys.exit("USB 上沒有 Nano 33 BLE。校正值已儲存；插上追蹤器後按「只燒錄」（--flash-only）再燒一次。")
+    print(f"正在編譯並透過 {port} 燒錄（開機做陀螺儀校正時請讓追蹤器保持靜止）…")
     build = subprocess.run([cli, "compile", "--fqbn", FQBN, str(SKETCH)], capture_output=True, text=True)
     if build.returncode != 0:
-        sys.exit("Compile failed:\n" + build.stdout[-2000:] + build.stderr[-2000:])
+        sys.exit("編譯失敗：\n" + build.stdout[-2000:] + build.stderr[-2000:])
     for attempt in range(2):
         up = subprocess.run([cli, "upload", "--fqbn", FQBN, "-p", port, str(SKETCH)],
                             capture_output=True, text=True)
@@ -161,7 +161,7 @@ def flash() -> str:
         time.sleep(2)
         port = nano_port(cli) or port  # the bootloader can come up on another COM port
     else:
-        sys.exit("Upload failed:\n" + (up.stdout + up.stderr)[-2000:])
+        sys.exit("燒錄失敗：\n" + (up.stdout + up.stderr)[-2000:])
     time.sleep(1)
     return nano_port(cli) or port
 
@@ -189,27 +189,27 @@ def boot_log(port: str, seconds: float = 10) -> list[str]:
 
 def verify(port: str, tracker_id: int) -> None:
     lines = boot_log(port)
-    print("Boot log:\n  " + "\n  ".join(lines or ["(nothing received)"]))
+    print("開機訊息：\n  " + "\n  ".join(lines or ["（沒有收到）"]))
     board = next((int(m.group(1)) for l in lines if (m := re.match(r"Tracker ID: (\d+)", l))), None)
     if board is None:
-        print("Could not read the tracker ID; check the boot log above.")
+        print("讀不到追蹤器 ID，請看上方的開機訊息。")
     elif board != tracker_id:
-        print(f"Note: the tracker on USB is {board}, not {tracker_id}. Its firmware now carries "
-              f"{tracker_id}'s calibration too; flash tracker {tracker_id} with --flash-only to apply it.")
+        print(f"注意：USB 上的是追蹤器 {board}，不是 {tracker_id}。它的韌體現在也帶著 {tracker_id} 的校正值；"
+              f"請把追蹤器 {tracker_id} 接上 USB 按「只燒錄」（--flash-only）才會生效。")
     elif any("Magnetometer: calibrated" in l for l in lines):
-        print(f"Tracker {tracker_id}: magnetometer calibrated and enabled.")
+        print(f"追蹤器 {tracker_id}：磁力計已校正並啟用。")
     else:
-        print(f"Tracker {tracker_id} booted but did not report the magnetometer as enabled.")
+        print(f"追蹤器 {tracker_id} 已開機，但沒有回報磁力計已啟用。")
     if any("Gyro calibration skipped" in l for l in lines):
-        print("Gyro calibration was skipped (tracker moved during boot): lay it flat and press RESET.")
+        print("開機時追蹤器有移動，陀螺儀校正被略過：把它平放後按 RESET。")
 
 
 def record_or_exit(backend: str, tracker_id: int, max_seconds: float) -> np.ndarray:
     try:
         return asyncio.run(record(backend, tracker_id, max_seconds))
     except OSError as exc:
-        sys.exit(f"Backend not reachable at {backend} ({exc}).\n"
-                 "Start it first: webui\\run.ps1, or target\\release\\aetherpose.exe")
+        sys.exit(f"連不到後端 {backend}（{exc}）。\n"
+                 "請先啟動：webui\\run.ps1，或 target\\release\\aetherpose.exe")
 
 
 def main():
@@ -224,14 +224,14 @@ def main():
     if not args.flash_only:
         samples = record_or_exit(args.backend, args.id, args.seconds)
         if len(samples) < 10:
-            sys.exit(f"No magnetometer data from tracker {args.id} (got {len(samples)} samples). "
-                     "Is it powered on and connected to the backend?")
+            sys.exit(f"沒有收到追蹤器 {args.id} 的磁力計資料（只有 {len(samples)} 筆）。"
+                     "它有開機並連上後端嗎？")
         fit = fit_ellipsoid(samples)
         problems = quality_problems(fit, len(samples))
         if problems:
-            sys.exit("Calibration rejected, nothing written:\n  - " + "\n  - ".join(problems))
-        print(f"Fit: field {fit['field']:.1f} uT, residual {fit['rel_rms']:.1%}, "
-              f"coverage {', '.join(f'{c:.0%}' for c in fit['coverage'])}")
+            sys.exit("校正結果不合格，沒有寫入：\n  - " + "\n  - ".join(problems))
+        print(f"擬合結果：磁場 {fit['field']:.1f} uT，殘差 {fit['rel_rms']:.1%}，"
+              f"涵蓋率 {', '.join(f'{c:.0%}' for c in fit['coverage'])}")
         write_calibration(args.id, fit)
     if not args.no_flash:
         verify(flash(), args.id)

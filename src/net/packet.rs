@@ -25,3 +25,22 @@ pub struct PacketData {
     #[serde(default)]
     pub quat: Option<[f32; 4]>,
 }
+
+impl PacketData {
+    /// False for NaN or infinite values and for a quaternion that is not roughly unit length.
+    /// Such values come from sensor glitches, firmware bugs or stray senders, and once in the
+    /// filters and the IK they never wash out, so the packet is dropped.
+    pub fn is_usable(&self) -> bool {
+        let finite = |values: &[f32]| values.iter().all(|value| value.is_finite());
+        let quat_ok = self.quat.is_none_or(|q| {
+            let norm = q.iter().map(|value| value * value).sum::<f32>().sqrt();
+            finite(&q) && (0.5..=1.5).contains(&norm)
+        });
+        self.batt.is_none_or(f32::is_finite)
+            && self.dt.is_none_or(f32::is_finite)
+            && self.gyro.is_none_or(|v| finite(&v))
+            && self.accel.is_none_or(|v| finite(&v))
+            && self.mag.is_none_or(|v| finite(&v))
+            && quat_ok
+    }
+}

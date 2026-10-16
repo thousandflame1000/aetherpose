@@ -1,3 +1,4 @@
+use super::quest::{fresh_input, head_age_ms};
 use super::*;
 use crate::app::types::{GuiSnapshot, WsBone};
 use crate::ik::goals::Goal;
@@ -5,12 +6,13 @@ use crate::ik::goals::Goal;
 impl BackendRuntime {
     pub(super) async fn run_pose_pipeline(&mut self) {
         let quest_data = self.quest_rx.borrow_and_update();
+        let quest = fresh_input(&quest_data, std::time::Instant::now());
         let mut ik_goals = self.fusion.process(
             &self.skeleton,
             &self.net_trackers,
-            quest_data.head.as_ref(),
-            quest_data.left_hand.as_ref(),
-            quest_data.right_hand.as_ref(),
+            quest.and_then(|q| q.head.as_ref()),
+            quest.and_then(|q| q.left_hand.as_ref()),
+            quest.and_then(|q| q.right_hand.as_ref()),
         );
         ik_goals.push(Goal::PosePrior {
             pose: self.t_pose.clone(),
@@ -28,15 +30,16 @@ impl BackendRuntime {
             bone.global_position.y += self.floor_offset;
         }
 
-        let mut stop_recording_on_error = false;
+        let mut write_error = None;
         if let Some(recorder) = &mut self.recorder {
             if let Err(e) = recorder.record_frame(&self.skeleton) {
                 error!("Recorder write failed, stopping recorder: {}", e);
-                stop_recording_on_error = true;
+                write_error = Some(format!("write:{}", e));
             }
         }
-        if stop_recording_on_error {
+        if write_error.is_some() {
             self.recorder = None;
+            self.recorder_error = write_error;
         }
 
         if let Some(sender) = &self.osc_sender {
@@ -93,35 +96,36 @@ impl BackendRuntime {
         let snapshot = GuiSnapshot {
             packet_count: self.packet_count,
             trackers: self.trackers.clone(),
-            mag_calibration_points: self.fusion.mag_calibration_points.clone(),
-            mag_calibrating_tracker_id: self.mag_calibrating_tracker_id,
             is_recording: self.recorder.is_some(),
             recorder_dropped_count,
             recorder_write_errors,
             recorder_filename,
             recorder_batch_size,
             recorder_flush_interval_ms,
-            mag_calibrations: self.fusion.mag_calibrations.clone(),
+            recorder_error: self.recorder_error.clone(),
+            osc_active: self.osc_sender.is_some(),
+            osc_error: self.osc_error.clone(),
+            config_warning: self.config.load_warning.clone(),
             leg_ratio: self.leg_ratio,
             floor_offset: self.floor_offset,
             pending_shake_bone: self.pending_shake_bone,
             serial_running: self.serial_running(),
             serial_status_msg: self.current_serial_status(),
+            ble_status: self.current_ble_status(),
+            headset_age_ms: head_age_ms(&self.quest_rx.borrow(), std::time::Instant::now()),
+            leg_calibrating: self.fusion.is_leg_calibrating(),
+            leg_calibration_samples: self.fusion.leg_calibration_samples(),
+            leg_calibration_result: self.leg_calibration_result.clone(),
+            settings: self.config.ws_settings(),
             bones,
         };
 
-        let _ = self.tx.send(GuiUpdate::Snapshot(snapshot));
+        let _ = self.tx.send(GuiUpdate::Snapshot(Box::new(snapshot)));
     }
 
     fn sync_tracker_ui_state(&mut self) {
         for tracker in self.trackers.values_mut() {
             tracker.assigned_bone = self.fusion.assigner.get_bone_id(tracker.id);
-            tracker.is_mag_calibrating = self
-                .fusion
-                .mag_calibration_active
-                .get(&tracker.id)
-                .copied()
-                .unwrap_or(false);
         }
     }
 

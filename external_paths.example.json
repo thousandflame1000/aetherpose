@@ -1,0 +1,8 @@
+{
+  "_note": "Copy to external_paths.json and point each entry at your copy. Relative paths start from this folder; leave an entry out to use external/<default name>. Check with: python frontend/external_paths.py",
+  "transpose_dir": "external/TransPose",
+  "smpl_npz": "external/SMPL_MALE.npz",
+  "smpl_pkl": "external/SMPL_MALE.pkl",
+  "weights": "external/weights.pt",
+  "dip_root": "external/DIP_IMU"
+}

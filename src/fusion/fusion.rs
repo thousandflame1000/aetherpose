@@ -1,9 +1,8 @@
 use crate::fusion::assignment::TrackerBoneAssigner;
 use crate::fusion::{confidence, weighting};
 use crate::ik::goals::Goal;
-use crate::imu::calibration::MagCalibration;
 use crate::imu::drift::ZuptDetector;
-use crate::imu::trajectory::{ImuTrajectoryEstimator, TrajectoryIntegrationMode};
+use crate::imu::trajectory::{ImuSample, ImuTrajectoryEstimator, TrajectoryIntegrationMode};
 use crate::net::tracker::Tracker;
 use crate::skeleton::model::SkeletonModel;
 use crate::smoothing::OneEuroFilter;
@@ -11,8 +10,27 @@ use nalgebra::{Quaternion, UnitQuaternion, Vector3};
 use std::collections::HashMap;
 use std::time::Instant;
 
+/// Chest, forearms, head and lower legs first: the six TransPose sensor slots.
+const AUTO_ASSIGN_BONES: [u8; 8] = [2, 32, 42, 4, 11, 21, 0, 12];
 const AUTHORITY_WEIGHT: f32 = 100.0;
+/// Full-strength drift compensation closes this share of the remaining heading difference per
+/// call (the backend calls 100 times a second): about 10 s to converge, so turning the head for
+/// a moment barely turns the hips.
+const DRIFT_CORRECTION_PER_CALL: f32 = 0.001;
 const DEFAULT_IMU_POSITION_WEIGHT: f32 = 0.35;
+
+/// Why a leg calibration produced no ratio.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum LegCalibrationError {
+    /// Nothing was collected: no fresh headset, or no left thigh and shin tracker.
+    NoSamples,
+    /// The head moved less than 0.15 m (metres moved): squat deeper.
+    SmallSwing(f32),
+    /// Standing and squatting leg angles were too alike to solve.
+    Unsolvable,
+    /// The solved ratio was outside 0.2..3.0.
+    OutOfRange(f32),
+}
 
 /// FusionEngine interprets tracker data and converts it into IK goals.
 pub struct FusionEngine {
@@ -33,11 +51,10 @@ pub struct FusionEngine {
     zupt_gyro_threshold: f32,
     last_rotations: HashMap<u8, UnitQuaternion<f32>>,
     last_stationary_times: HashMap<u8, Instant>,
-    pub mag_calibrations: HashMap<u8, MagCalibration>,
-    pub mag_calibration_points: HashMap<u8, Vec<Vector3<f32>>>,
-    pub mag_calibration_active: HashMap<u8, bool>,
     is_leg_calibrating: bool,
     leg_calibration_data: Vec<(f32, UnitQuaternion<f32>, UnitQuaternion<f32>)>,
+    /// Heading corrections built up by drift compensation, per bone (hips and waist).
+    yaw_corrections: HashMap<u8, UnitQuaternion<f32>>,
 }
 
 /// Pose from an authoritative source such as Quest head or controllers.
@@ -65,11 +82,9 @@ impl FusionEngine {
             zupt_gyro_threshold: 0.02,
             last_rotations: HashMap::new(),
             last_stationary_times: HashMap::new(),
-            mag_calibrations: HashMap::new(),
-            mag_calibration_points: HashMap::new(),
-            mag_calibration_active: HashMap::new(),
             is_leg_calibrating: false,
             leg_calibration_data: Vec::new(),
+            yaw_corrections: HashMap::new(),
         }
     }
 
@@ -89,10 +104,9 @@ impl FusionEngine {
                 target_rotation: head.rotation,
                 weight: AUTHORITY_WEIGHT,
             });
-            generated_goals.push(Goal::Position {
+            generated_goals.push(Goal::Anchor {
                 bone_id: 4,
                 target_position: head.position,
-                weight: AUTHORITY_WEIGHT,
             });
         }
 
@@ -160,10 +174,12 @@ impl FusionEngine {
                     *tracker_id,
                     bone_id,
                     anchor_position,
-                    tracker.received_packets,
-                    final_rotation,
-                    accel,
-                    tracker.stationary,
+                    ImuSample {
+                        counter: tracker.received_packets,
+                        rotation: final_rotation,
+                        accel_body: accel,
+                        stationary: tracker.stationary,
+                    },
                 );
 
                 let authority_locked = self.is_position_authoritative(
@@ -184,8 +200,6 @@ impl FusionEngine {
                     });
                 }
             }
-
-            self.collect_mag_point(*tracker_id, tracker);
         }
 
         self.collect_leg_calibration(trackers, quest_head);
@@ -198,41 +212,25 @@ impl FusionEngine {
         self.device_quaternions.insert(tracker_id, q);
     }
 
-    pub fn start_mag_calibration(&mut self, tracker_id: u8) {
-        self.mag_calibration_active.insert(tracker_id, true);
-        self.mag_calibration_points
-            .entry(tracker_id)
-            .or_default()
-            .clear();
-        log::info!("Starting magnetometer calibration for tracker {}", tracker_id);
-    }
-
-    pub fn stop_mag_calibration(&mut self, tracker_id: u8) {
-        self.mag_calibration_active.insert(tracker_id, false);
-        if let Some(points) = self.mag_calibration_points.get(&tracker_id) {
-            if let Some(calibration) = MagCalibration::calibrate(points) {
-                self.mag_calibrations.insert(tracker_id, calibration);
-                log::info!("Stored magnetometer calibration for tracker {}", tracker_id);
-            } else {
-                log::warn!(
-                    "Magnetometer calibration for tracker {} needs more spread",
-                    tracker_id
-                );
-            }
-        }
-    }
-
     pub fn start_leg_calibration(&mut self) {
         self.is_leg_calibrating = true;
         self.leg_calibration_data.clear();
         log::info!("Starting leg calibration");
     }
 
-    pub fn stop_leg_calibration(&mut self, total_leg_length: f32) -> Option<f32> {
+    pub fn is_leg_calibrating(&self) -> bool {
+        self.is_leg_calibrating
+    }
+
+    pub fn leg_calibration_samples(&self) -> usize {
+        self.leg_calibration_data.len()
+    }
+
+    pub fn stop_leg_calibration(&mut self, total_leg_length: f32) -> Result<f32, LegCalibrationError> {
         self.is_leg_calibrating = false;
         if self.leg_calibration_data.is_empty() {
             log::warn!("Leg calibration has no samples");
-            return None;
+            return Err(LegCalibrationError::NoSamples);
         }
 
         let mut max_y = -f32::INFINITY;
@@ -251,12 +249,13 @@ impl FusionEngine {
             }
         }
 
-        let stand = stand_frame?;
-        let squat = squat_frame?;
+        let (Some(stand), Some(squat)) = (stand_frame, squat_frame) else {
+            return Err(LegCalibrationError::NoSamples);
+        };
         let delta_h = max_y - min_y;
         if delta_h < 0.15 {
             log::warn!("Leg calibration height swing too small: {:.3}m", delta_h);
-            return None;
+            return Err(LegCalibrationError::SmallSwing(delta_h));
         }
 
         let vertical_factor = |rotation: &UnitQuaternion<f32>| -> f32 {
@@ -275,32 +274,59 @@ impl FusionEngine {
         let denominator = delta_h - total_leg_length * thigh_term;
 
         if denominator.abs() < 1e-4 {
-            return None;
+            return Err(LegCalibrationError::Unsolvable);
         }
 
         let ratio = numerator / denominator;
         if (0.2..3.0).contains(&ratio) {
             log::info!("Leg calibration ratio resolved to {:.3}", ratio);
-            Some(ratio)
+            Ok(ratio)
         } else {
             log::warn!("Leg calibration ratio {:.3} is outside the expected range", ratio);
-            None
+            Err(LegCalibrationError::OutOfRange(ratio))
         }
     }
 
+    /// Reassigns every connected tracker by ID order (the Auto Assign button).
     pub fn auto_assign(&mut self, trackers: &HashMap<u8, Tracker>) {
         let mut sorted_ids: Vec<u8> = trackers.keys().copied().collect();
         sorted_ids.sort();
 
-        let priority_bones = [2, 32, 42, 4, 11, 21, 0, 12];
         self.assigner.map.clear();
+        self.assigner.unassigned.clear();
 
         for (index, tracker_id) in sorted_ids.iter().enumerate() {
-            if let Some(&bone_id) = priority_bones.get(index) {
+            if let Some(&bone_id) = AUTO_ASSIGN_BONES.get(index) {
                 self.assigner.set_assignment(*tracker_id, bone_id);
                 log::info!("Auto assigned tracker {} to bone {}", tracker_id, bone_id);
             } else {
                 log::warn!("Tracker {} could not be auto-assigned", tracker_id);
+            }
+        }
+    }
+
+    /// Gives each connected tracker that has no bone the first priority bone
+    /// no other connected tracker uses. Manual and saved assignments stay, so
+    /// a tracker connecting later does not reshuffle the others.
+    pub fn assign_unassigned(&mut self, trackers: &HashMap<u8, Tracker>) {
+        let mut sorted_ids: Vec<u8> = trackers.keys().copied().collect();
+        sorted_ids.sort();
+        let mut taken: Vec<u8> = sorted_ids
+            .iter()
+            .filter_map(|id| self.assigner.get_bone_id(*id))
+            .collect();
+
+        for tracker_id in sorted_ids {
+            if self.assigner.get_bone_id(tracker_id).is_some() || self.assigner.unassigned.contains(&tracker_id) {
+                continue;
+            }
+            match AUTO_ASSIGN_BONES.iter().find(|bone| !taken.contains(bone)) {
+                Some(&bone_id) => {
+                    self.assigner.set_assignment(tracker_id, bone_id);
+                    taken.push(bone_id);
+                    log::info!("Assigned new tracker {} to free bone {}", tracker_id, bone_id);
+                }
+                None => log::warn!("Tracker {} could not be auto-assigned", tracker_id),
             }
         }
     }
@@ -318,6 +344,12 @@ impl FusionEngine {
                 }
             }
         }
+        self.clear_drift_corrections();
+    }
+
+    /// Forgets the headings drift compensation built up (it starts again from the trackers' own).
+    pub fn clear_drift_corrections(&mut self) {
+        self.yaw_corrections.clear();
     }
 
     pub fn reset_mounting(&mut self, trackers: &HashMap<u8, Tracker>) {
@@ -330,8 +362,7 @@ impl FusionEngine {
 
     pub fn clear_all_calibration(&mut self) {
         self.calibration_offsets.clear();
-        self.mag_calibration_points.clear();
-        self.mag_calibration_active.clear();
+        self.yaw_corrections.clear();
         self.last_rotations.clear();
         self.last_stationary_times.clear();
         self.device_quaternions.clear();
@@ -427,37 +458,27 @@ impl FusionEngine {
         stationary
     }
 
+    /// Turns the hips and waist toward the headset's heading, a little each call, and keeps
+    /// what it has turned: a tracker whose heading drifted converges onto the headset's over
+    /// seconds. (Blending a fixed 1 % per call without keeping it corrected a 30-degree drift
+    /// by 0.3 degrees, however long it ran.)
     fn apply_drift_correction(
-        &self,
+        &mut self,
         bone_id: u8,
         target_rotation: UnitQuaternion<f32>,
         quest_head: Option<&AuthoritativePose>,
     ) -> UnitQuaternion<f32> {
-        let mut final_rotation = target_rotation;
-
-        if let Some(head) = quest_head {
-            if (bone_id == 0 || bone_id == 1) && self.drift_correction > 0.0 {
-                let imu_yaw = extract_yaw_rotation(&target_rotation);
-                let head_yaw = extract_yaw_rotation(&head.rotation);
-                let correction_factor = (self.drift_correction * 0.01).clamp(0.0, 1.0);
-                let corrected_yaw = imu_yaw.slerp(&head_yaw, correction_factor);
-                let yaw_correction = corrected_yaw * imu_yaw.inverse();
-                final_rotation = yaw_correction * target_rotation;
-            }
+        let Some(head) = quest_head else { return target_rotation };
+        if !(bone_id == 0 || bone_id == 1) || self.drift_correction <= 0.0 {
+            return target_rotation;
         }
-
-        final_rotation
-    }
-
-    fn collect_mag_point(&mut self, tracker_id: u8, tracker: &Tracker) {
-        if self.mag_calibration_active.get(&tracker_id) == Some(&true) {
-            if let Some(mag_data) = tracker.mag {
-                self.mag_calibration_points
-                    .entry(tracker_id)
-                    .or_default()
-                    .push(Vector3::from(mag_data));
-            }
-        }
+        let correction = self.yaw_corrections.entry(bone_id).or_insert_with(UnitQuaternion::identity);
+        let corrected = *correction * target_rotation;
+        let remaining = extract_yaw_rotation(&head.rotation) * extract_yaw_rotation(&corrected).inverse();
+        let step = UnitQuaternion::identity()
+            .slerp(&remaining, (self.drift_correction * DRIFT_CORRECTION_PER_CALL).clamp(0.0, 1.0));
+        *correction = step * *correction;
+        *correction * target_rotation
     }
 
     fn collect_leg_calibration(
@@ -563,5 +584,55 @@ mod tests {
         assert!(engine.should_emit_position_goal(0));
         assert!(engine.should_emit_position_goal(12));
         assert!(!engine.should_emit_position_goal(2));
+    }
+
+    fn heading_degrees(rotation: &UnitQuaternion<f32>) -> f32 {
+        let forward = rotation * Vector3::z();
+        forward.x.atan2(forward.z).to_degrees()
+    }
+
+    #[test]
+    fn drift_compensation_turns_the_hips_onto_the_headset_heading() {
+        let head = AuthoritativePose { position: Vector3::new(0.0, 1.65, 0.0), rotation: UnitQuaternion::identity() };
+        let drifted = UnitQuaternion::from_axis_angle(&Vector3::y_axis(), 30f32.to_radians());
+        let mut engine = FusionEngine::new();
+        engine.drift_correction = 1.0;
+        let mut hips = drifted;
+        for _ in 0..1000 {
+            hips = engine.apply_drift_correction(0, drifted, Some(&head));
+        }
+        // About 10 s at 100 calls a second: two thirds of the way.
+        let after_ten_seconds = heading_degrees(&hips);
+        assert!((8.0..14.0).contains(&after_ten_seconds), "{after_ten_seconds}");
+        for _ in 0..4000 {
+            hips = engine.apply_drift_correction(0, drifted, Some(&head));
+        }
+        assert!(heading_degrees(&hips).abs() < 0.5, "{}", heading_degrees(&hips));
+        // Only the hips and waist, only with a headset, only when switched on.
+        assert_eq!(engine.apply_drift_correction(2, drifted, Some(&head)), drifted);
+        assert_eq!(engine.apply_drift_correction(0, drifted, None), drifted);
+        engine.drift_correction = 0.0;
+        assert_eq!(engine.apply_drift_correction(0, drifted, Some(&head)), drifted);
+        engine.drift_correction = 1.0;
+        engine.clear_drift_corrections();
+        let fresh = engine.apply_drift_correction(0, drifted, Some(&head));
+        assert!((heading_degrees(&fresh) - 30.0).abs() < 0.1, "a cleared correction starts from the tracker again");
+    }
+
+    #[test]
+    fn leg_calibration_reports_why_it_failed() {
+        let mut engine = FusionEngine::new();
+        engine.start_leg_calibration();
+        assert!(engine.is_leg_calibrating());
+        assert_eq!(engine.stop_leg_calibration(0.9), Err(LegCalibrationError::NoSamples));
+        assert!(!engine.is_leg_calibrating());
+
+        // Head height barely changed: a squat that was too shallow.
+        engine.start_leg_calibration();
+        let level = UnitQuaternion::identity();
+        engine.leg_calibration_data.push((1.70, level, level));
+        engine.leg_calibration_data.push((1.62, level, level));
+        assert_eq!(engine.leg_calibration_samples(), 2);
+        assert!(matches!(engine.stop_leg_calibration(0.9), Err(LegCalibrationError::SmallSwing(swing)) if (swing - 0.08).abs() < 1e-4));
     }
 }

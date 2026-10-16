@@ -1,0 +1,373 @@
+{
+  "canvasCount": 1,
+  "unifiedWorld": true,
+  "onlineAssetLoaded": true,
+  "animationTime": 1.1220999999046326,
+  "vertexCount": 6890,
+  "jointCount": 24,
+  "source": "\u793a\u7bc4\u8cc7\u6599",
+  "cameraRestored": true,
+  "bodyPreserved": true,
+  "backendConnected": true,
+  "poseVersion": 1299017,
+  "roundStarted": true,
+  "after": {
+    "poseVersion": 1299032,
+    "timeLeft": 89,
+    "fresh": true,
+    "bodyPreserved": true
+  },
+  "runtimeMetrics": "\u59ff\u614b\u66f4\u65b0\u504f\u6162\uff1a\u6bcf\u79d2 5.5 \u500b\u59ff\u614b",
+  "sceneImport": {
+    "loaded": true,
+    "multiple": true,
+    "removedSelected": true,
+    "positioned": true,
+    "transformed": true,
+    "reset": true,
+    "persisted": true,
+    "portablePassed": true,
+    "libraryLoaded": true,
+    "propsLoaded": true,
+    "propHeights": {
+      "training_cone": 0.42,
+      "plyo_box": 0.62,
+      "dumbbell": 0.22,
+      "kettlebell": 0.362,
+      "standing_bag": 1.36,
+      "hurdle": 0.51,
+      "gym_ball": 0.674,
+      "bench": 0.495,
+      "potted_plant": 1.12,
+      "balance_pad": 0.07
+    },
+    "moveToolPassed": true,
+    "snapToolPassed": true,
+    "scaleToolPassed": true,
+    "rotateToolPassed": true,
+    "saveDeleted": true,
+    "removed": true,
+    "bodyPreserved": true,
+    "canvasCount": 1
+  },
+  "physics": {
+    "enabled": true,
+    "backend": "CPU \u7db2\u683c\u7bc4\u570d\uff0b\u9023\u7e8c\u6383\u63a0",
+    "milliseconds": 0.2999997138977051,
+    "contacts": 0,
+    "floorClear": true,
+    "obstacles": 3
+  },
+  "opponentAnimated": true,
+  "recentered": {
+    "roundStopped": true,
+    "fresh": true,
+    "hipAtSpawn": true,
+    "bodyPreserved": true
+  },
+  "poseGames": [
+    {
+      "mode": "reach",
+      "started": {
+        "playing": true,
+        "mode": "reach",
+        "version": 1299047,
+        "calibrating": false,
+        "targets": 3,
+        "cue": "\u4f38\u624b\u78b0\u89f8\u9ec3\u8272\u76ee\u6a19\u3002"
+      },
+      "stopped": {
+        "fresh": true,
+        "version": 1299048,
+        "bodyPreserved": true,
+        "canvasCount": 1,
+        "stopped": true,
+        "controlsRestored": true,
+        "unfinished": true
+      },
+      "ok": true
+    },
+    {
+      "mode": "squat",
+      "started": {
+        "playing": true,
+        "mode": "squat",
+        "version": 1299048,
+        "calibrating": true,
+        "targets": 0,
+        "cue": "\u96d9\u8173\u8e29\u5e73\u3001\u7ad9\u76f4 1 \u79d2\u5b8c\u6210\u6821\u6e96\u3002"
+      },
+      "stopped": {
+        "fresh": true,
+        "version": 1299049,
+        "bodyPreserved": true,
+        "canvasCount": 1,
+        "stopped": true,
+        "controlsRestored": true,
+        "unfinished": true
+      },
+      "ok": true
+    },
+    {
+      "mode": "balance",
+      "started": {
+        "playing": true,
+        "mode": "balance",
+        "version": 1299049,
+        "calibrating": true,
+        "targets": 0,
+        "cue": "\u96d9\u8173\u8e29\u5e73\u3001\u7ad9\u76f4 1 \u79d2\u5b8c\u6210\u6821\u6e96\u3002"
+      },
+      "stopped": {
+        "fresh": true,
+        "version": 1299051,
+        "bodyPreserved": true,
+        "canvasCount": 1,
+        "stopped": true,
+        "controlsRestored": true,
+        "unfinished": true
+      },
+      "ok": true
+    },
+    {
+      "mode": "dodge",
+      "started": {
+        "playing": true,
+        "mode": "dodge",
+        "version": 1299051,
+        "calibrating": true,
+        "targets": 0,
+        "cue": "\u96d9\u8173\u8e29\u5e73\u3001\u7ad9\u76f4 1 \u79d2\u5b8c\u6210\u6821\u6e96\u3002"
+      },
+      "stopped": {
+        "fresh": true,
+        "version": 1299052,
+        "bodyPreserved": true,
+        "canvasCount": 1,
+        "stopped": true,
+        "controlsRestored": true,
+        "unfinished": true
+      },
+      "ok": true
+    },
+    {
+      "mode": "sky",
+      "started": {
+        "playing": true,
+        "mode": "sky",
+        "version": 1299052,
+        "calibrating": true,
+        "targets": 0,
+        "cue": "\u96d9\u8173\u8e29\u5e73\u3001\u7ad9\u76f4 1 \u79d2\u5b8c\u6210\u6821\u6e96\u3002"
+      },
+      "stopped": {
+        "fresh": true,
+        "version": 1299053,
+        "bodyPreserved": true,
+        "canvasCount": 1,
+        "stopped": true,
+        "controlsRestored": true,
+        "unfinished": true
+      },
+      "ok": true
+    },
+    {
+      "mode": "clap",
+      "started": {
+        "playing": true,
+        "mode": "clap",
+        "version": 1299053,
+        "calibrating": true,
+        "targets": 0,
+        "cue": "\u96d9\u8173\u8e29\u5e73\u3001\u7ad9\u76f4 1 \u79d2\u5b8c\u6210\u6821\u6e96\u3002"
+      },
+      "stopped": {
+        "fresh": true,
+        "version": 1299054,
+        "bodyPreserved": true,
+        "canvasCount": 1,
+        "stopped": true,
+        "controlsRestored": true,
+        "unfinished": true
+      },
+      "ok": true
+    },
+    {
+      "mode": "march",
+      "started": {
+        "playing": true,
+        "mode": "march",
+        "version": 1299054,
+        "calibrating": true,
+        "targets": 0,
+        "cue": "\u96d9\u8173\u8e29\u5e73\u3001\u7ad9\u76f4 1 \u79d2\u5b8c\u6210\u6821\u6e96\u3002"
+      },
+      "stopped": {
+        "fresh": true,
+        "version": 1299055,
+        "bodyPreserved": true,
+        "canvasCount": 1,
+        "stopped": true,
+        "controlsRestored": true,
+        "unfinished": true
+      },
+      "ok": true
+    },
+    {
+      "mode": "star",
+      "started": {
+        "playing": true,
+        "mode": "star",
+        "version": 1299055,
+        "calibrating": true,
+        "targets": 0,
+        "cue": "\u96d9\u8173\u8e29\u5e73\u3001\u7ad9\u76f4 1 \u79d2\u5b8c\u6210\u6821\u6e96\u3002"
+      },
+      "stopped": {
+        "fresh": true,
+        "version": 1299056,
+        "bodyPreserved": true,
+        "canvasCount": 1,
+        "stopped": true,
+        "controlsRestored": true,
+        "unfinished": true
+      },
+      "ok": true
+    },
+    {
+      "mode": "cross",
+      "started": {
+        "playing": true,
+        "mode": "cross",
+        "version": 1299056,
+        "calibrating": true,
+        "targets": 0,
+        "cue": "\u96d9\u8173\u8e29\u5e73\u3001\u7ad9\u76f4 1 \u79d2\u5b8c\u6210\u6821\u6e96\u3002"
+      },
+      "stopped": {
+        "fresh": true,
+        "version": 1299058,
+        "bodyPreserved": true,
+        "canvasCount": 1,
+        "stopped": true,
+        "controlsRestored": true,
+        "unfinished": true
+      },
+      "ok": true
+    },
+    {
+      "mode": "guard",
+      "started": {
+        "playing": true,
+        "mode": "guard",
+        "version": 1299058,
+        "calibrating": true,
+        "targets": 0,
+        "cue": "\u96d9\u8173\u8e29\u5e73\u3001\u7ad9\u76f4 1 \u79d2\u5b8c\u6210\u6821\u6e96\u3002"
+      },
+      "stopped": {
+        "fresh": true,
+        "version": 1299059,
+        "bodyPreserved": true,
+        "canvasCount": 1,
+        "stopped": true,
+        "controlsRestored": true,
+        "unfinished": true
+      },
+      "ok": true
+    },
+    {
+      "mode": "shoulder",
+      "started": {
+        "playing": true,
+        "mode": "shoulder",
+        "version": 1299059,
+        "calibrating": true,
+        "targets": 0,
+        "cue": "\u96d9\u8173\u8e29\u5e73\u3001\u7ad9\u76f4 1 \u79d2\u5b8c\u6210\u6821\u6e96\u3002"
+      },
+      "stopped": {
+        "fresh": true,
+        "version": 1299060,
+        "bodyPreserved": true,
+        "canvasCount": 1,
+        "stopped": true,
+        "controlsRestored": true,
+        "unfinished": true
+      },
+      "ok": true
+    },
+    {
+      "mode": "highfive",
+      "started": {
+        "playing": true,
+        "mode": "highfive",
+        "version": 1299060,
+        "calibrating": true,
+        "targets": 0,
+        "cue": "\u96d9\u8173\u8e29\u5e73\u3001\u7ad9\u76f4 1 \u79d2\u5b8c\u6210\u6821\u6e96\u3002"
+      },
+      "stopped": {
+        "fresh": true,
+        "version": 1299061,
+        "bodyPreserved": true,
+        "canvasCount": 1,
+        "stopped": true,
+        "controlsRestored": true,
+        "unfinished": true
+      },
+      "ok": true
+    }
+  ],
+  "historyRecorded": true,
+  "circuits": {
+    "results": [
+      {
+        "name": "upper",
+        "started": true,
+        "stopped": true
+      },
+      {
+        "name": "lower",
+        "started": true,
+        "stopped": true
+      },
+      {
+        "name": "mixed",
+        "started": true,
+        "stopped": true
+      },
+      {
+        "name": "custom",
+        "started": true,
+        "stopped": true
+      }
+    ],
+    "sharedWorld": true
+  },
+  "animationContinuity": {
+    "loaded": true,
+    "starts": 5,
+    "continuous": true
+  },
+  "opponentFacing": {
+    "alignment": 1,
+    "groupRotation": 0,
+    "bodyPreserved": true
+  },
+  "sceneImage": {
+    "png": true,
+    "width": 1038,
+    "height": 746,
+    "nonblank": true,
+    "preserved": true
+  },
+  "liveSquats": {
+    "state": "playing",
+    "score": 4,
+    "source": "live"
+  },
+  "ok": true,
+  "runtimeErrors": [],
+  "warnings": []
+}

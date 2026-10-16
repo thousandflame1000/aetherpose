@@ -2,8 +2,9 @@
    #combat-view so it cannot restyle the control UI (both use .dot, .primary). */
 #combat-view {
   position: absolute; inset: 0; z-index: 5; display: none;
-  background: #07090d;
-  font: 13px/1.4 "Segoe UI", Inter, system-ui, sans-serif;
+  background: transparent;
+  pointer-events: none;
+  font: 13px/1.4 "Segoe UI", Inter, "Microsoft JhengHei UI", "Microsoft JhengHei", "Noto Sans TC", "PingFang TC", system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 body.combat-mode #combat-view { display: block; }
@@ -20,7 +21,6 @@ body.combat-mode #combat-view { display: block; }
     --muted: #9aa5b5;
     --faint: #657284;
     --blue: #64a4ff;
-    --cyan: #32d3c5;
     --amber: #f5bd48;
     --red: #f25c66;
     --green: #42d983;
@@ -28,7 +28,6 @@ body.combat-mode #combat-view { display: block; }
   }
 
 
-  #combat-view #arena { display: block; width: 100%; height: 100%; }
 
   #combat-view .hud {
     position: absolute;
@@ -200,6 +199,7 @@ body.combat-mode #combat-view { display: block; }
   }
 
   #combat-view .sub-readout {
+    min-height: 1.3em;  /* empty while idle: keeps the panels from jumping */
     margin-top: 4px;
     color: var(--muted);
     font-size: 12px;
@@ -217,7 +217,7 @@ body.combat-mode #combat-view { display: block; }
     position: absolute;
     left: 18px;
     right: 18px;
-    bottom: 14px;
+    bottom: 60px;
     display: flex;
     justify-content: space-between;
     align-items: end;
@@ -256,6 +256,12 @@ body.combat-mode #combat-view { display: block; }
   #combat-view .tag.on { color: var(--green); border-color: rgba(66,217,131,0.45); }
   #combat-view .tag.warn { color: var(--amber); border-color: rgba(245,189,72,0.45); }
 
+  @container (max-width: 1180px) {
+    #combat-view .hud { grid-template-columns: 1fr auto; row-gap: 8px; }
+    #combat-view .scoreboard { grid-row: 2; grid-column: 1 / -1; width: min(100%, 640px); }
+    #combat-view .left-stack, #combat-view .right-stack { top: 150px; }
+  }
+
   @container (max-width: 860px) {
     #combat-view .hud {
       left: 10px;
@@ -271,8 +277,21 @@ body.combat-mode #combat-view { display: block; }
       grid-template-columns: 1fr 86px 1fr;
     }
     #combat-view .controls { justify-self: start; }
-    #combat-view .left-stack, #combat-view .right-stack { top: 158px; width: calc(50vw - 18px); }
-    #combat-view .bottom { left: 10px; right: 10px; bottom: 10px; align-items: stretch; }
+    /* Narrow side columns: the player and the opponent between them must stay visible. */
+    #combat-view .left-stack, #combat-view .right-stack { top: 158px; width: min(150px, 26cqw); gap: 8px; }
+    #combat-view .panel { padding: 8px 10px; }
+    #combat-view .big-readout { font-size: 18px; min-height: 22px; }
+    #combat-view .combo { min-width: 0; }
+    #combat-view .left-stack { left: 10px; }
+    #combat-view .right-stack { right: 10px; top: auto; bottom: 104px; }  /* combo above the feed, clear of the opponent's head */
+    #combat-view .bottom { left: 10px; right: 10px; bottom: 56px; align-items: stretch; }
     #combat-view .legend { display: none; }
     #combat-view .feed { width: 100%; }
   }
+
+#combat-view button { pointer-events: auto; }
+#combat-view button:disabled { opacity: .45; cursor: not-allowed; }
+#combat-view button.primary:disabled { filter: saturate(.2); }
+body.combat-mode #hud { display: none; }
+#page-combat .hint { color: var(--text-dim); }
+#combat-view .dot.on.demo { background: var(--amber); box-shadow: 0 0 0 3px rgba(245,189,72,.18); }

@@ -26,11 +26,12 @@ Arduino IDE 開啟 `src/skeleton/tracker_firmware/tracker_firmware.ino`；
 
 ## 2. 啟動
 
-在 `aetherpose` 目錄執行（以下用同一個 `python` 安裝及執行）：
+**主介面已在執行時（最常用）**：在網頁「進階 › 監控」分頁點該追蹤器的「三軸 ↗」，會在新分頁開啟同一個測試頁（`http://127.0.0.1:18080/imu_axes.html?id=76`），直接讀後端轉送的原始裝置 rotation，不必另外啟動程式。
+
+**不想啟動後端，直接用 BLE 連一顆 IMU**：在 `aetherpose` 目錄用專案的 Python 執行（`setup.ps1` 已安裝需要的 `bleak`）：
 
 ```powershell
-python -m pip install bleak
-python tools/imu_axes.py
+..\.venv\Scripts\python.exe tools/imu_axes.py
 ```
 
 自動開啟 <http://127.0.0.1:8767>。不用另外啟動原本的全身動捕程式。
@@ -46,7 +47,6 @@ python tools/imu_axes.py --address AA:BB:CC:DD:EE:FF
 如果已在跑 Rust 後端，可改讀它轉送的原始裝置 rotation：
 
 ```powershell
-python -m pip install websockets
 python tools/imu_axes.py --ws ws://127.0.0.1:9009/ws --id 76
 ```
 
@@ -57,7 +57,7 @@ python tools/imu_axes.py --demo
 ```
 
 `--no-browser` 不自動開網頁，`--port 8768` 可換連接埠；終端按 Ctrl+C 關閉。
-畫面只在本機提供，不需要 CDN 或額外 3D 套件。
+畫面只在本機提供，不需要 CDN 或額外 3D 套件。頁面檔案是 `webui/imu_axes.html`，主介面與這個工具共用。
 
 ## 3. 實際比對
 
@@ -68,14 +68,14 @@ python tools/imu_axes.py --demo
 5. 穩定後按「記錄此筆比對」，重複多個姿態後匯出 CSV。
 
 「角度誤差」比較目前四元數與 `參考四元數 × 預期繞軸旋轉`，是 0–180° 的最小姿態差，
-不是逐項 Euler 角相減。相對旋轉角同样是最短角，不能用來計算多圈旋轉總量。
+不是逐項 Euler 角相減。相對旋轉角同樣是最短角，不能用來計算多圈旋轉總量。
 CSV 包含時間、資料來源、參考/目前四元數、預期軸/角度、roll/pitch/yaw 與角度誤差。
 DEMO 資料在 CSV 的 source 欄也會標示，不可當作實機測試結果。
 若超過 1 秒沒有新資料，箭頭變淡並禁止新增比對紀錄。
 
 ## 磁力計與「絕對空間」
 
-Madgwick 的世界座標是由重力與磁場建立，不是房間內的定位座標。
+Fusion AHRS 的世界座標是由重力與磁場建立，不是房間內的定位座標。
 `USE_MAGNETOMETER = true` 時朝向會受當地磁場影響；不保證等於真北。
 每顆板子都要各自校正磁力計（板上的電池、零件造成的硬鐵偏移每顆都不同），一條指令完成：
 

@@ -1,16 +1,11 @@
 use serde::{Serialize, Deserialize};
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ConnectionType {
     Serial,
     Ble,
     Udp,
+    #[default]
     Unknown,
-}
-
-impl Default for ConnectionType {
-    fn default() -> Self {
-        Self::Unknown
-    }
 }

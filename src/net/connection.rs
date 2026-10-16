@@ -49,6 +49,7 @@ pub async fn run_serial_manager(
                 let stop_rx_block = stop_rx.clone();
                 let handle = tokio::task::spawn_blocking(move || {
                     let mut buf: Vec<u8> = vec![0u8; 1024];
+                    let mut pending: Vec<u8> = Vec::new();
                     loop {
                         if *stop_rx_block.borrow() {
                             log::info!("serial reader for {} received stop signal", port_name_clone);
@@ -56,33 +57,33 @@ pub async fn run_serial_manager(
                         }
                         match port.read(buf.as_mut_slice()) {
                             Ok(read) if read > 0 => {
-                                let data = &buf[..read];
-                                if let Ok(s) = std::str::from_utf8(data) {
-                                    // 嘗試逐行解析 JSON 封包
-                                    for line in s.lines() {
-                                        if line.trim().is_empty() { continue; }
-                                        match serde_json::from_str::<PacketData>(line) {
-                                            Ok(packet) => {
-                                                let _ = tx_clone.send((packet, ConnectionType::Serial));
-                                                stats_clone.sent_success.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                                            }
-                                            Err(e) => {
-                                                log::warn!("Failed to parse PacketData line from {}: {} -- line='{}'", port_name_clone, e, line);
-                                                if let Some(ref s) = status_clone {
-                                                    let _ = s.send(format!("parse_error:{}:{}", port_name_clone, e));
-                                                }
+                                // One JSON packet per line; a line may arrive over several reads.
+                                for line in split_serial_lines(&mut pending, &buf[..read]) {
+                                    let Ok(line) = std::str::from_utf8(&line) else {
+                                        log::warn!("Received a non-UTF8 line from {} ({} bytes)", port_name_clone, line.len());
+                                        if let Some(ref s) = status_clone {
+                                            let _ = s.send(format!("non_utf8:{}:{} bytes", port_name_clone, line.len()));
+                                        }
+                                        continue;
+                                    };
+                                    if line.trim().is_empty() { continue; }
+                                    match serde_json::from_str::<PacketData>(line) {
+                                        Ok(packet) => {
+                                            let _ = tx_clone.send((packet, ConnectionType::Serial));
+                                            stats_clone.sent_success.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                        }
+                                        Err(e) => {
+                                            log::warn!("Failed to parse PacketData line from {}: {} -- line='{}'", port_name_clone, e, line);
+                                            if let Some(ref s) = status_clone {
+                                                let _ = s.send(format!("parse_error:{}:{}", port_name_clone, e));
                                             }
                                         }
-                                    }
-                                } else {
-                                    // 非 UTF-8 資料
-                                    log::warn!("Received non-UTF8 data from {} ({} bytes)", port_name_clone, read);
-                                    if let Some(ref s) = status_clone {
-                                        let _ = s.send(format!("non_utf8:{}:{} bytes", port_name_clone, read));
                                     }
                                 }
                             }
                             Ok(_) => {}
+                            // The port's read timeout: no data for a moment is not an error.
+                            Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {}
                             Err(e) => {
                                 log::error!("Serial read error on {}: {}", port_name_clone, e);
                                 if let Some(ref s) = status_clone {
@@ -118,6 +119,29 @@ pub async fn run_serial_manager(
         log::info!("Reconnecting serial {} after {} ms (attempt {})", port_name, delay_ms, attempt);
         time::sleep(Duration::from_millis(delay_ms)).await;
     }
+}
+
+/// Longest unfinished line kept while waiting for its newline; beyond that the bytes are noise.
+const MAX_SERIAL_LINE: usize = 64 * 1024;
+
+/// Serial reads return arbitrary chunks. Appends `data` to `pending` and returns the lines it
+/// completes (without the line ending); the unfinished tail waits for the next read, so a JSON
+/// line or a multi-byte character split across reads is not lost.
+pub fn split_serial_lines(pending: &mut Vec<u8>, data: &[u8]) -> Vec<Vec<u8>> {
+    pending.extend_from_slice(data);
+    let mut lines = Vec::new();
+    while let Some(end) = pending.iter().position(|&byte| byte == b'\n') {
+        let mut line: Vec<u8> = pending.drain(..=end).collect();
+        line.pop();
+        if line.last() == Some(&b'\r') {
+            line.pop();
+        }
+        lines.push(line);
+    }
+    if pending.len() > MAX_SERIAL_LINE {
+        pending.clear();
+    }
+    lines
 }
 
 pub async fn run_ble_manager(

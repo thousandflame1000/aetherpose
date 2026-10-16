@@ -200,28 +200,33 @@ impl SkeletonModel {
         skel
     }
 
+    /// Forward kinematics: a bone's joint sits at its parent's joint plus the offset turned by
+    /// the parent's rotation, so a bone's rotation turns the segments to its children (the thigh
+    /// bone turns the thigh) and the root's rotation does not move the root itself. (Turning
+    /// the offset by the bone's own rotation swung the whole body about the floor whenever the
+    /// hips turned, and gave every tracker the segment above its own.)
     pub fn update_fk(&mut self) {
         let update_order = [
             0, 1, 2, 3, 4, 10, 11, 12, 20, 21, 22, 30, 31, 32, 33, 40, 41, 42, 43,
         ];
 
         for id in update_order {
-            if let Some(bone) = self.bones.get(&id).cloned() {
-                let (parent_pos, parent_rot) = match bone.parent_id {
-                    Some(pid) => self
-                        .bones
-                        .get(&pid)
-                        .map(|parent| (parent.global_position, parent.global_rotation))
-                        .unwrap_or_else(|| (Vector3::zeros(), UnitQuaternion::identity())),
-                    None => (Vector3::zeros(), UnitQuaternion::identity()),
-                };
+            self.place_bone(id);
+        }
+    }
 
-                if let Some(current) = self.bones.get_mut(&id) {
-                    current.global_rotation = parent_rot * current.local_rotation;
-                    current.global_position =
-                        parent_pos + (current.global_rotation * current.local_position);
-                }
-            }
+    fn place_bone(&mut self, id: BoneId) {
+        let Some(parent_id) = self.bones.get(&id).map(|bone| bone.parent_id) else {
+            return;
+        };
+        let parent = parent_id
+            .and_then(|pid| self.bones.get(&pid))
+            .map(|parent| (parent.global_position, parent.global_rotation));
+        if let Some(current) = self.bones.get_mut(&id) {
+            let (parent_pos, parent_rot) =
+                parent.unwrap_or_else(|| (Vector3::zeros(), UnitQuaternion::identity()));
+            current.global_rotation = parent_rot * current.local_rotation;
+            current.global_position = parent_pos + parent_rot * current.local_position;
         }
     }
 
@@ -229,27 +234,7 @@ impl SkeletonModel {
         let mut stack = vec![start_bone_id];
 
         while let Some(id) = stack.pop() {
-            let (parent_pos, parent_rot) = {
-                let bone = match self.bones.get(&id) {
-                    Some(bone) => bone,
-                    None => continue,
-                };
-
-                match bone.parent_id {
-                    Some(pid) => self
-                        .bones
-                        .get(&pid)
-                        .map(|parent| (parent.global_position, parent.global_rotation))
-                        .unwrap_or_else(|| (Vector3::zeros(), UnitQuaternion::identity())),
-                    None => (Vector3::zeros(), UnitQuaternion::identity()),
-                }
-            };
-
-            if let Some(current) = self.bones.get_mut(&id) {
-                current.global_rotation = parent_rot * current.local_rotation;
-                current.global_position =
-                    parent_pos + (current.global_rotation * current.local_position);
-            }
+            self.place_bone(id);
 
             if let Some(child_ids) = self.children.get(&id) {
                 stack.extend(child_ids);
@@ -346,5 +331,60 @@ impl SkeletonModel {
         adjust_leg(&mut self.bones, 11, 12, ratio);
         adjust_leg(&mut self.bones, 21, 22, ratio);
         self.update_fk();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::f32::consts::FRAC_PI_2;
+
+    fn position(skeleton: &SkeletonModel, id: BoneId) -> Vector3<f32> {
+        skeleton.get_joint_position(id).unwrap()
+    }
+
+    fn turn(skeleton: &mut SkeletonModel, id: BoneId, axis: Vector3<f32>, angle: f32) {
+        skeleton.bones.get_mut(&id).unwrap().local_rotation =
+            UnitQuaternion::from_axis_angle(&nalgebra::Unit::new_normalize(axis), angle);
+    }
+
+    #[test]
+    fn turning_the_hips_does_not_move_them() {
+        let mut skeleton = SkeletonModel::new_humanoid();
+        skeleton.update_fk();
+        let hips = position(&skeleton, 0);
+        turn(&mut skeleton, 0, Vector3::x(), FRAC_PI_2);
+        skeleton.update_fk();
+        assert!((position(&skeleton, 0) - hips).norm() < 1e-5, "the hips stay put");
+        assert!((position(&skeleton, 1).y - hips.y).abs() < 1e-5, "the spine above them is turned level");
+    }
+
+    #[test]
+    fn a_bone_turns_the_segment_to_its_child() {
+        let mut skeleton = SkeletonModel::new_humanoid();
+        skeleton.update_fk();
+        let (hip_joint, knee, ankle) = (position(&skeleton, 10), position(&skeleton, 11), position(&skeleton, 12));
+        // Bend the knee 90 degrees: the shin turns, the thigh does not.
+        turn(&mut skeleton, 11, Vector3::x(), -FRAC_PI_2);
+        skeleton.update_fk();
+        assert!((position(&skeleton, 10) - hip_joint).norm() < 1e-5);
+        assert!((position(&skeleton, 11) - knee).norm() < 1e-5, "the knee stays where the thigh puts it");
+        let shin = position(&skeleton, 12) - knee;
+        assert!((shin.norm() - (ankle - knee).norm()).abs() < 1e-5);
+        assert!(shin.y.abs() < 1e-5, "the shin is level: {shin:?}");
+    }
+
+    #[test]
+    fn updating_from_a_bone_matches_a_full_update() {
+        let mut full = SkeletonModel::new_humanoid();
+        full.update_fk();
+        let mut partial = full.clone();
+        turn(&mut full, 10, Vector3::z(), 0.7);
+        turn(&mut partial, 10, Vector3::z(), 0.7);
+        full.update_fk();
+        partial.update_fk_from(10);
+        for id in [10, 11, 12] {
+            assert!((position(&full, id) - position(&partial, id)).norm() < 1e-6);
+        }
     }
 }

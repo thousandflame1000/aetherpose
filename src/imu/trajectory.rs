@@ -7,17 +7,22 @@ type StateVector = SVector<f32, 9>;
 type CovarianceMatrix = SMatrix<f32, 9, 9>;
 type MeasurementMatrix = SMatrix<f32, 3, 9>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum TrajectoryIntegrationMode {
+    #[default]
     Rk4,
     Euler,
 }
 
-impl Default for TrajectoryIntegrationMode {
-    fn default() -> Self {
-        Self::Rk4
-    }
+/// One IMU reading as the trajectory estimator needs it.
+#[derive(Debug, Clone, Copy)]
+pub struct ImuSample {
+    /// Packet counter; a repeated counter is not integrated twice.
+    pub counter: u64,
+    pub rotation: UnitQuaternion<f32>,
+    pub accel_body: [f32; 3],
+    pub stationary: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -130,11 +135,9 @@ impl ImuTrajectoryEstimator {
         tracker_id: u8,
         bone_id: u8,
         anchor_position: Vector3<f32>,
-        sample_counter: u64,
-        rotation: UnitQuaternion<f32>,
-        accel_body: [f32; 3],
-        stationary: bool,
+        sample: ImuSample,
     ) -> TrajectoryEstimate {
+        let ImuSample { counter: sample_counter, rotation, accel_body, stationary } = sample;
         let now = Instant::now();
         let state = self
             .trackers
@@ -378,8 +381,10 @@ mod tests {
         let rotation = UnitQuaternion::identity();
         let accel = [1.0, 9.81, 0.0];
 
-        let first = estimator.update(1, 12, Vector3::zeros(), 1, rotation, accel, false);
-        let second = estimator.update(1, 12, Vector3::zeros(), 1, rotation, accel, false);
+        let sample = ImuSample { counter: 1, rotation, accel_body: accel, stationary: false };
+
+        let first = estimator.update(1, 12, Vector3::zeros(), sample);
+        let second = estimator.update(1, 12, Vector3::zeros(), sample);
 
         assert_eq!(first.position, second.position);
         assert_eq!(first.velocity, second.velocity);

@@ -10,8 +10,14 @@ pub struct ZuptDetector {
     gyro_threshold: f32,
 }
 
+/// Largest window, as on the page. The window is allocated up front, so a huge value from a
+/// hand-edited config.json would otherwise abort the backend at start-up.
+pub const MAX_ZUPT_WINDOW: usize = 200;
+
 impl ZuptDetector {
     pub fn new(window_size: usize, accel_var_threshold: f32, gyro_threshold: f32) -> Self {
+        // A zero window would never be trimmed and grow without bound.
+        let window_size = window_size.clamp(1, MAX_ZUPT_WINDOW);
         Self {
             window: std::collections::VecDeque::with_capacity(window_size),
             window_size,
@@ -50,6 +56,25 @@ impl ZuptDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn zero_window_does_not_grow() {
+        let mut d = ZuptDetector::new(0, 0.0005, 0.02);
+        for _ in 0..100 {
+            d.update(Vector3::new(0.0, 1.0, 0.0), Vector3::zeros());
+        }
+        assert_eq!(d.window.len(), 1);
+    }
+
+    #[test]
+    fn a_huge_window_is_capped() {
+        let mut d = ZuptDetector::new(usize::MAX, 0.0005, 0.02);
+        let still = |d: &mut ZuptDetector| d.update(Vector3::new(0.0, 9.81, 0.0), Vector3::zeros());
+        for _ in 0..MAX_ZUPT_WINDOW - 1 {
+            assert!(!still(&mut d));
+        }
+        assert!(still(&mut d), "a full window of {MAX_ZUPT_WINDOW} still samples is stationary");
+    }
 
     #[test]
     fn test_zupt_detects_stationary() {

@@ -1,12 +1,14 @@
 """
-WebSocket client — runs in a background thread so Dear PyGui can stay on the
-main thread.  Thread-safe queues bridge the two worlds.
+Receives the Rust backend's snapshots on a background thread and reconnects
+when the backend restarts. mesh_bridge.py reads the newest messages from a
+small thread-safe queue; it never sends anything to the backend.
 """
 
 import asyncio
 import json
 import queue
 import threading
+import time
 
 import websockets
 import websockets.exceptions
@@ -16,8 +18,7 @@ class WsClient:
     def __init__(self, url: str, reconnect_delay: float = 2.0):
         self._url = url
         self._reconnect_delay = reconnect_delay
-        self._incoming: queue.Queue = queue.Queue()
-        self._outgoing: queue.Queue = queue.Queue()
+        self._incoming: queue.Queue = queue.Queue(maxsize=16)
         self._connected = threading.Event()
         self._loop: asyncio.AbstractEventLoop | None = None
         self._thread: threading.Thread | None = None
@@ -31,14 +32,15 @@ class WsClient:
 
     def get_update(self) -> dict | None:
         """Return the next server message (non-blocking), or None."""
+        item = self.get_update_timed()
+        return item[0] if item is not None else None
+
+    def get_update_timed(self):
+        """Return (message, monotonic receipt time) without refreshing old data."""
         try:
             return self._incoming.get_nowait()
         except queue.Empty:
             return None
-
-    def send_command(self, cmd) -> None:
-        """Enqueue a BackendCommand for delivery to the Rust backend."""
-        self._outgoing.put(json.dumps(cmd))
 
     def is_connected(self) -> bool:
         return self._connected.is_set()
@@ -55,11 +57,8 @@ class WsClient:
             try:
                 async with websockets.connect(self._url) as ws:
                     self._connected.set()
-                    await asyncio.gather(
-                        self._recv_loop(ws),
-                        self._send_loop(ws),
-                    )
-            except (OSError, websockets.exceptions.WebSocketException) as exc:
+                    await self._recv_loop(ws)  # returns when the backend closes the connection
+            except (OSError, websockets.exceptions.WebSocketException):
                 pass  # server not up yet or connection dropped
             finally:
                 self._connected.clear()
@@ -68,16 +67,14 @@ class WsClient:
     async def _recv_loop(self, ws) -> None:
         async for raw in ws:
             try:
-                self._incoming.put(json.loads(raw))
+                message = json.loads(raw)
+                if not isinstance(message, dict): continue
+                item = (message, time.monotonic())
+                # Latest snapshots matter; a slow viewer must not accumulate
+                # an unbounded backlog and later treat old IMU input as new.
+                if self._incoming.full():
+                    try: self._incoming.get_nowait()
+                    except queue.Empty: pass
+                self._incoming.put_nowait(item)
             except json.JSONDecodeError:
                 pass
-
-    async def _send_loop(self, ws) -> None:
-        loop = asyncio.get_event_loop()
-        while True:
-            # Poll the outgoing queue without blocking the event loop.
-            try:
-                msg = self._outgoing.get_nowait()
-                await ws.send(msg)
-            except queue.Empty:
-                await asyncio.sleep(0.01)

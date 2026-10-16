@@ -5,9 +5,12 @@ impl BackendRuntime {
     pub(super) fn ingest_udp_packets(&mut self) -> bool {
         let mut received_any = false;
         let mut loop_count = 0;
+        // Taken out for the loop: process_packet needs all of self.
+        let Some(socket) = self.socket.take() else { return false };
 
-        while let Ok((len, _addr)) = self.socket.try_recv_from(&mut self.udp_buf) {
-            if loop_count >= UDP_PACKET_BUDGET_PER_TICK { break; }
+        // The budget is checked before reading: a packet read past it would be dropped.
+        while loop_count < UDP_PACKET_BUDGET_PER_TICK {
+            let Ok((len, _addr)) = socket.try_recv_from(&mut self.udp_buf) else { break };
             loop_count += 1;
 
             if let Some(packet) = net::protocol::ImuDataPacket::from_bytes(&self.udp_buf[..len]) {
@@ -25,6 +28,7 @@ impl BackendRuntime {
                 received_any = true;
             }
         }
+        self.socket = Some(socket);
         received_any
     }
 
@@ -38,6 +42,11 @@ impl BackendRuntime {
     }
 
     fn process_packet(&mut self, data: PacketData, source: ConnectionType) {
+        // Every path (BLE, UDP, serial) ends here: keep NaN and broken quaternions out.
+        if !data.is_usable() {
+            log::debug!("Dropped a packet with unusable values from tracker {}", data.id);
+            return;
+        }
         self.packet_count += 1;
 
         let is_new_tracker = !self.trackers.contains_key(&data.id);
@@ -60,7 +69,6 @@ impl BackendRuntime {
                 received_packets: 0,
                 lost_packets: 0,
                 mag: data.mag,
-                is_mag_calibrating: false,
             });
 
             // ── Sequence-based loss tracking ──────────────────────────────────
@@ -122,16 +130,12 @@ impl BackendRuntime {
             })
             .unwrap_or(false);
 
-        let is_mag_calibrating = self.fusion.mag_calibration_active
-            .get(&data.id).copied().unwrap_or(false);
-
         // ── Shake-assign ──────────────────────────────────────────────────────
         if let Some(target_bone) = self.pending_shake_bone {
             if let Some(accel) = data.accel {
                 let magnitude = (accel[0].powi(2) + accel[1].powi(2) + accel[2].powi(2)).sqrt();
                 if magnitude > 25.0 {
-                    self.fusion.assigner.set_assignment(data.id, target_bone);
-                    self.config.tracker_assignments.insert(data.id, target_bone);
+                    self.assign_tracker(data.id, target_bone);
                     self.pending_shake_bone = None;
                     info!("Shake assign: tracker #{} -> bone {}", data.id, target_bone);
                 }
@@ -141,7 +145,6 @@ impl BackendRuntime {
         // ── Update TrackerState with final rotation ───────────────────────────
         if let Some(tracker_state) = self.trackers.get_mut(&data.id) {
             tracker_state.stationary      = stationary;
-            tracker_state.is_mag_calibrating = is_mag_calibrating;
             tracker_state.assigned_bone   = self.fusion.assigner.get_bone_id(data.id);
             if let Some(q) = selected_quat {
                 tracker_state.rotation = Some(q);
@@ -162,10 +165,11 @@ impl BackendRuntime {
                 tracker
             });
 
-        // ── Auto-assign on first packet from a new tracker ───────────────────
+        // ── Free bone for a new tracker; existing assignments stay ───────────
         if is_new_tracker {
-            self.fusion.auto_assign(&self.net_trackers);
-            info!("New tracker #{} connected — auto-assigned", data.id);
+            self.fusion.assign_unassigned(&self.net_trackers);
+            self.persist_assignments();
+            info!("New tracker #{} connected — bone {:?}", data.id, self.fusion.assigner.get_bone_id(data.id));
         }
     }
 }

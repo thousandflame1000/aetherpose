@@ -24,7 +24,7 @@ pub async fn run() {
         for update in gui_rx {
             let msg = match update {
                 GuiUpdate::Snapshot(snap) => {
-                    let ws_snap = WsSnapshot::from_snapshot(snap);
+                    let ws_snap = WsSnapshot::from_snapshot(*snap);
                     WsServerMessage::Snapshot(ws_snap)
                 }
                 GuiUpdate::Status {
@@ -69,7 +69,8 @@ pub async fn run() {
         Ok(l) => l,
         Err(e) => {
             error!("Cannot bind WebSocket server on {}: {}", addr, e);
-            return;
+            // Without its WebSocket the backend is useless: fail visibly, not with exit code 0.
+            std::process::exit(1);
         }
     };
 
@@ -78,7 +79,9 @@ pub async fn run() {
         addr
     );
 
-    axum::serve(listener, router(state)).await.unwrap();
+    if let Err(e) = axum::serve(listener, router(state)).await {
+        error!("WebSocket server stopped: {}", e);
+    }
 }
 
 fn init_logging() {

@@ -1,2 +1,9 @@
-dearpygui>=1.11.0
-websockets>=12.0
+# Direct Python dependencies of frontend/, tools/ and tests/.
+# setup.ps1 installs these together with the pinned versions in requirements_freeze.txt.
+--extra-index-url https://download.pytorch.org/whl/cpu
+numpy
+scipy
+torch
+websockets
+pyserial   # tools/calibrate_tracker.py boot-log check
+bleak      # tools/imu_axes.py and calibrate_tracker.py direct BLE mode
