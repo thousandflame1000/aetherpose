@@ -1,0 +1,960 @@
+(pcb aetherpose_custom (parser (string_quote ") (space_in_quoted_tokens on) (host_cad "Aetherpose") (host_version "0.1")) (resolution um 10) (unit um)
+(structure (layer F.Cu (type signal) (property (index 0))) (layer B.Cu (type signal) (property (index 1))) (boundary (rect pcb 0 -48000 45000 0)) (via VIA) (rule (width 200) (clearance 150)) (autoroute_settings (fanout off) (autoroute on) (postroute off) (vias on) (via_costs 50) (plane_via_costs 5) (start_ripup_costs 100) (start_pass_no 1) (layer_rule F.Cu (active on) (preferred_direction horizontal) (preferred_direction_trace_costs 1.0) (against_preferred_direction_trace_costs 2.5)) (layer_rule B.Cu (active on) (preferred_direction vertical) (preferred_direction_trace_costs 1.0) (against_preferred_direction_trace_costs 2.5)))
+(keepout (rect F.Cu 15400 -100 28600 5300))
+(keepout (rect B.Cu 15400 -100 28600 5300))
+(keepout (rect F.Cu 38150 -14850 39850 -13150))
+(keepout (rect B.Cu 38150 -14850 39850 -13150))
+) (placement
+(component P0 (place P0 16100 -1700 front 0))
+(component P1 (place P1 16100 -2500 front 0))
+(component P2 (place P2 16100 -3300 front 0))
+(component P3 (place P3 16100 -4100 front 0))
+(component P4 (place P4 16100 -4900 front 0))
+(component P5 (place P5 16100 -5700 front 0))
+(component P6 (place P6 16100 -6500 front 0))
+(component P7 (place P7 16100 -7300 front 0))
+(component P8 (place P8 16100 -8100 front 0))
+(component P9 (place P9 16100 -8900 front 0))
+(component P10 (place P10 16100 -9700 front 0))
+(component P11 (place P11 17200 -10600 front 0))
+(component P12 (place P12 18000 -10600 front 0))
+(component P13 (place P13 18800 -10600 front 0))
+(component P14 (place P14 19600 -10600 front 0))
+(component P15 (place P15 20400 -10600 front 0))
+(component P16 (place P16 21200 -10600 front 0))
+(component P17 (place P17 22000 -10600 front 0))
+(component P18 (place P18 22800 -10600 front 0))
+(component P19 (place P19 23600 -10600 front 0))
+(component P20 (place P20 24400 -10600 front 0))
+(component P21 (place P21 25200 -10600 front 0))
+(component P22 (place P22 26000 -10600 front 0))
+(component P23 (place P23 26800 -10600 front 0))
+(component P24 (place P24 27900 -9700 front 0))
+(component P25 (place P25 27900 -8900 front 0))
+(component P26 (place P26 27900 -8100 front 0))
+(component P27 (place P27 27900 -7300 front 0))
+(component P28 (place P28 27900 -6500 front 0))
+(component P29 (place P29 27900 -5700 front 0))
+(component P30 (place P30 27900 -4900 front 0))
+(component P31 (place P31 27900 -4100 front 0))
+(component P32 (place P32 27900 -3300 front 0))
+(component P33 (place P33 27900 -2500 front 0))
+(component P34 (place P34 27900 -1700 front 0))
+(component P35 (place P35 26800 -800 front 0))
+(component P36 (place P36 26000 -800 front 0))
+(component P37 (place P37 25200 -800 front 0))
+(component P38 (place P38 24400 -800 front 0))
+(component P39 (place P39 23600 -800 front 0))
+(component P40 (place P40 22800 -800 front 0))
+(component P41 (place P41 22000 -800 front 0))
+(component P42 (place P42 21200 -800 front 0))
+(component P43 (place P43 20400 -800 front 0))
+(component P44 (place P44 19600 -800 front 0))
+(component P45 (place P45 18800 -800 front 0))
+(component P46 (place P46 18000 -800 front 0))
+(component P47 (place P47 17200 -800 front 0))
+(component P48 (place P48 20025 -3725 front 0))
+(component P49 (place P49 20025 -5700 front 0))
+(component P50 (place P50 20025 -7675 front 0))
+(component P51 (place P51 22000 -3725 front 0))
+(component P52 (place P52 22000 -5700 front 0))
+(component P53 (place P53 22000 -7675 front 0))
+(component P54 (place P54 23975 -3725 front 0))
+(component P55 (place P55 23975 -5700 front 0))
+(component P56 (place P56 23975 -7675 front 0))
+(component P57 (place P57 27950 -750 front 0))
+(component P58 (place P58 27950 -10650 front 0))
+(component P59 (place P59 16050 -10650 front 0))
+(component P60 (place P60 16050 -750 front 0))
+(component P61 (place P61 31000 -19988 front 0))
+(component P62 (place P62 30500 -19988 front 0))
+(component P63 (place P63 31500 -19988 front 0))
+(component P64 (place P64 30500 -22012 front 0))
+(component P65 (place P65 31000 -22012 front 0))
+(component P66 (place P66 31500 -22012 front 0))
+(component P67 (place P67 29738 -20250 front 0))
+(component P68 (place P68 29738 -20750 front 0))
+(component P69 (place P69 29738 -21250 front 0))
+(component P70 (place P70 29738 -21750 front 0))
+(component P71 (place P71 32263 -21750 front 0))
+(component P72 (place P72 32263 -21250 front 0))
+(component P73 (place P73 32263 -20750 front 0))
+(component P74 (place P74 32263 -20250 front 0))
+(component P75 (place P75 39750 -12725 front 0))
+(component P76 (place P76 38250 -12725 front 0))
+(component P77 (place P77 38750 -12725 front 0))
+(component P78 (place P78 39250 -12725 front 0))
+(component P79 (place P79 37725 -13250 front 0))
+(component P80 (place P80 37725 -13750 front 0))
+(component P81 (place P81 37725 -14250 front 0))
+(component P82 (place P82 37725 -14750 front 0))
+(component P83 (place P83 39750 -15275 front 0))
+(component P84 (place P84 38750 -15275 front 0))
+(component P85 (place P85 39250 -15275 front 0))
+(component P86 (place P86 38250 -15275 front 0))
+(component P87 (place P87 40275 -14750 front 0))
+(component P88 (place P88 40275 -13250 front 0))
+(component P89 (place P89 40275 -13750 front 0))
+(component P90 (place P90 40275 -14250 front 0))
+(component P91 (place P91 7538 -31250 front 0))
+(component P92 (place P92 7538 -31750 front 0))
+(component P93 (place P93 7538 -32250 front 0))
+(component P94 (place P94 7538 -32750 front 0))
+(component P95 (place P95 8250 -33462 front 0))
+(component P96 (place P96 8750 -33462 front 0))
+(component P97 (place P97 9250 -33462 front 0))
+(component P98 (place P98 9750 -33462 front 0))
+(component P99 (place P99 10462 -32750 front 0))
+(component P100 (place P100 10462 -32250 front 0))
+(component P101 (place P101 10462 -31750 front 0))
+(component P102 (place P102 10462 -31250 front 0))
+(component P103 (place P103 9750 -30538 front 0))
+(component P104 (place P104 9250 -30538 front 0))
+(component P105 (place P105 8750 -30538 front 0))
+(component P106 (place P106 8250 -30538 front 0))
+(component P107 (place P107 9000 -32000 front 0))
+(component P108 (place P108 8410 -31410 front 0))
+(component P109 (place P109 9590 -31410 front 0))
+(component P110 (place P110 8410 -32590 front 0))
+(component P111 (place P111 9590 -32590 front 0))
+(component P112 (place P112 9000 -32000 front 0))
+(component P113 (place P113 17862 -26050 front 0))
+(component P114 (place P114 17862 -27000 front 0))
+(component P115 (place P115 17862 -27950 front 0))
+(component P116 (place P116 20138 -27950 front 0))
+(component P117 (place P117 20138 -26050 front 0))
+(component P118 (place P118 13320 -45050 front 0))
+(component P119 (place P119 11890 -41400 front 0))
+(component P120 (place P120 4680 -45050 front 0))
+(component P121 (place P121 6110 -41400 front 0))
+(component P122 (place P122 4680 -40870 front 0))
+(component P123 (place P123 13320 -40870 front 0))
+(component P124 (place P124 8750 -39955 front 0))
+(component P125 (place P125 10750 -39955 front 0))
+(component P126 (place P126 10250 -39955 front 0))
+(component P127 (place P127 9750 -39955 front 0))
+(component P128 (place P128 9250 -39955 front 0))
+(component P129 (place P129 8250 -39955 front 0))
+(component P130 (place P130 7750 -39955 front 0))
+(component P131 (place P131 7250 -39955 front 0))
+(component P132 (place P132 12250 -39955 front 0))
+(component P133 (place P133 11450 -39955 front 0))
+(component P134 (place P134 6550 -39955 front 0))
+(component P135 (place P135 5750 -39955 front 0))
+(component P136 (place P136 5750 -39955 front 0))
+(component P137 (place P137 6550 -39955 front 0))
+(component P138 (place P138 11450 -39955 front 0))
+(component P139 (place P139 12250 -39955 front 0))
+(component P140 (place P140 29000 -40000 front 0))
+(component P141 (place P141 31000 -40000 front 0))
+(component P142 (place P142 33000 -40000 front 0))
+(component P143 (place P143 4000 -15000 front 0))
+(component P144 (place P144 6500 -15000 front 0))
+(component P145 (place P145 9000 -15000 front 0))
+(component P146 (place P146 4000 -18300 front 0))
+(component P147 (place P147 6500 -18300 front 0))
+(component P148 (place P148 9000 -18300 front 0))
+(component P149 (place P149 29175 -16000 front 0))
+(component P150 (place P150 30825 -16000 front 0))
+(component P151 (place P151 33175 -16000 front 0))
+(component P152 (place P152 34825 -16000 front 0))
+(component P153 (place P153 13175 -15000 front 0))
+(component P154 (place P154 14825 -15000 front 0))
+(component P155 (place P155 12175 -12000 front 0))
+(component P156 (place P156 13825 -12000 front 0))
+(component P157 (place P157 31175 -28000 front 0))
+(component P158 (place P158 32825 -28000 front 0))
+(component P159 (place P159 35175 -28000 front 0))
+(component P160 (place P160 36825 -28000 front 0))
+(component P161 (place P161 21175 -34000 front 0))
+(component P162 (place P162 22825 -34000 front 0))
+(component P163 (place P163 25175 -34000 front 0))
+(component P164 (place P164 26825 -34000 front 0))
+(component P165 (place P165 5175 -37000 front 0))
+(component P166 (place P166 6825 -37000 front 0))
+(component P167 (place P167 11175 -36000 front 0))
+(component P168 (place P168 12825 -36000 front 0))
+(component P169 (place P169 1175 -40000 front 0))
+(component P170 (place P170 2825 -40000 front 0))
+(component P171 (place P171 15175 -40000 front 0))
+(component P172 (place P172 16825 -40000 front 0))
+(component P173 (place P173 20175 -23000 front 0))
+(component P174 (place P174 21825 -23000 front 0))
+(component P175 (place P175 36175 -24000 front 0))
+(component P176 (place P176 37825 -24000 front 0))
+(component P177 (place P177 3175 -32000 front 0))
+(component P178 (place P178 4825 -32000 front 0))
+(component P179 (place P179 14175 -30000 front 0))
+(component P180 (place P180 15825 -30000 front 0))
+(component P181 (place P181 29225 -24000 front 0))
+(component P182 (place P182 30775 -24000 front 0))
+(component P183 (place P183 33225 -24000 front 0))
+(component P184 (place P184 34775 -24000 front 0))
+(component P185 (place P185 41225 -10000 front 0))
+(component P186 (place P186 42775 -10000 front 0))
+(component P187 (place P187 38050 -18000 front 0))
+(component P188 (place P188 39950 -18000 front 0))
+(component P189 (place P189 13225 -18000 front 0))
+(component P190 (place P190 14775 -18000 front 0))
+(component P191 (place P191 25225 -31000 front 0))
+(component P192 (place P192 26775 -31000 front 0))
+(component P193 (place P193 4050 -28000 front 0))
+(component P194 (place P194 5950 -28000 front 0))
+(component P195 (place P195 11050 -28000 front 0))
+(component P196 (place P196 12950 -28000 front 0))
+(component P197 (place P197 13050 -24000 front 0))
+(component P198 (place P198 14950 -24000 front 0))
+(component P199 (place P199 18050 -31000 front 0))
+(component P200 (place P200 19950 -31000 front 0))
+(component P201 (place P201 12050 -6000 front 0))
+(component P202 (place P202 13950 -6000 front 0))
+(component P203 (place P203 12225 -9000 front 0))
+(component P204 (place P204 13775 -9000 front 0))
+(component P205 (place P205 40212 -24000 front 0))
+(component P206 (place P206 41788 -24000 front 0))
+(component P207 (place P207 3212 -35000 front 0))
+(component P208 (place P208 4788 -35000 front 0))
+(component P209 (place P209 24000 -45000 front 0))
+(component P210 (place P210 27000 -45000 front 0))
+(component P211 (place P211 30000 -45000 front 0))
+(component P212 (place P212 33000 -45000 front 0))
+(component P213 (place P213 36000 -45000 front 0))
+(component P214 (place P214 39000 -45000 front 0))
+) (library (padstack VIA (shape (circle F.Cu 600 0 0)) (shape (circle B.Cu 600 0 0)) (attach off))
+(image P0 (pin PS0 1 0 0)) (padstack PS0
+(shape (rect F.Cu -400 -200 400 200))
+(attach off))
+(image P1 (pin PS1 1 0 0)) (padstack PS1
+(shape (rect F.Cu -400 -200 400 200))
+(attach off))
+(image P2 (pin PS2 1 0 0)) (padstack PS2
+(shape (rect F.Cu -400 -200 400 200))
+(attach off))
+(image P3 (pin PS3 1 0 0)) (padstack PS3
+(shape (rect F.Cu -400 -200 400 200))
+(attach off))
+(image P4 (pin PS4 1 0 0)) (padstack PS4
+(shape (rect F.Cu -400 -200 400 200))
+(attach off))
+(image P5 (pin PS5 1 0 0)) (padstack PS5
+(shape (rect F.Cu -400 -200 400 200))
+(attach off))
+(image P6 (pin PS6 1 0 0)) (padstack PS6
+(shape (rect F.Cu -400 -200 400 200))
+(attach off))
+(image P7 (pin PS7 1 0 0)) (padstack PS7
+(shape (rect F.Cu -400 -200 400 200))
+(attach off))
+(image P8 (pin PS8 1 0 0)) (padstack PS8
+(shape (rect F.Cu -400 -200 400 200))
+(attach off))
+(image P9 (pin PS9 1 0 0)) (padstack PS9
+(shape (rect F.Cu -400 -200 400 200))
+(attach off))
+(image P10 (pin PS10 1 0 0)) (padstack PS10
+(shape (rect F.Cu -400 -200 400 200))
+(attach off))
+(image P11 (pin PS11 1 0 0)) (padstack PS11
+(shape (rect F.Cu -200 -400 200 400))
+(attach off))
+(image P12 (pin PS12 1 0 0)) (padstack PS12
+(shape (rect F.Cu -200 -400 200 400))
+(attach off))
+(image P13 (pin PS13 1 0 0)) (padstack PS13
+(shape (rect F.Cu -200 -400 200 400))
+(attach off))
+(image P14 (pin PS14 1 0 0)) (padstack PS14
+(shape (rect F.Cu -200 -400 200 400))
+(attach off))
+(image P15 (pin PS15 1 0 0)) (padstack PS15
+(shape (rect F.Cu -200 -400 200 400))
+(attach off))
+(image P16 (pin PS16 1 0 0)) (padstack PS16
+(shape (rect F.Cu -200 -400 200 400))
+(attach off))
+(image P17 (pin PS17 1 0 0)) (padstack PS17
+(shape (rect F.Cu -200 -400 200 400))
+(attach off))
+(image P18 (pin PS18 1 0 0)) (padstack PS18
+(shape (rect F.Cu -200 -400 200 400))
+(attach off))
+(image P19 (pin PS19 1 0 0)) (padstack PS19
+(shape (rect F.Cu -200 -400 200 400))
+(attach off))
+(image P20 (pin PS20 1 0 0)) (padstack PS20
+(shape (rect F.Cu -200 -400 200 400))
+(attach off))
+(image P21 (pin PS21 1 0 0)) (padstack PS21
+(shape (rect F.Cu -200 -400 200 400))
+(attach off))
+(image P22 (pin PS22 1 0 0)) (padstack PS22
+(shape (rect F.Cu -200 -400 200 400))
+(attach off))
+(image P23 (pin PS23 1 0 0)) (padstack PS23
+(shape (rect F.Cu -200 -400 200 400))
+(attach off))
+(image P24 (pin PS24 1 0 0)) (padstack PS24
+(shape (rect F.Cu -400 -200 400 200))
+(attach off))
+(image P25 (pin PS25 1 0 0)) (padstack PS25
+(shape (rect F.Cu -400 -200 400 200))
+(attach off))
+(image P26 (pin PS26 1 0 0)) (padstack PS26
+(shape (rect F.Cu -400 -200 400 200))
+(attach off))
+(image P27 (pin PS27 1 0 0)) (padstack PS27
+(shape (rect F.Cu -400 -200 400 200))
+(attach off))
+(image P28 (pin PS28 1 0 0)) (padstack PS28
+(shape (rect F.Cu -400 -200 400 200))
+(attach off))
+(image P29 (pin PS29 1 0 0)) (padstack PS29
+(shape (rect F.Cu -400 -200 400 200))
+(attach off))
+(image P30 (pin PS30 1 0 0)) (padstack PS30
+(shape (rect F.Cu -400 -200 400 200))
+(attach off))
+(image P31 (pin PS31 1 0 0)) (padstack PS31
+(shape (rect F.Cu -400 -200 400 200))
+(attach off))
+(image P32 (pin PS32 1 0 0)) (padstack PS32
+(shape (rect F.Cu -400 -200 400 200))
+(attach off))
+(image P33 (pin PS33 1 0 0)) (padstack PS33
+(shape (rect F.Cu -400 -200 400 200))
+(attach off))
+(image P34 (pin PS34 1 0 0)) (padstack PS34
+(shape (rect F.Cu -400 -200 400 200))
+(attach off))
+(image P35 (pin PS35 1 0 0)) (padstack PS35
+(shape (rect F.Cu -200 -400 200 400))
+(attach off))
+(image P36 (pin PS36 1 0 0)) (padstack PS36
+(shape (rect F.Cu -200 -400 200 400))
+(attach off))
+(image P37 (pin PS37 1 0 0)) (padstack PS37
+(shape (rect F.Cu -200 -400 200 400))
+(attach off))
+(image P38 (pin PS38 1 0 0)) (padstack PS38
+(shape (rect F.Cu -200 -400 200 400))
+(attach off))
+(image P39 (pin PS39 1 0 0)) (padstack PS39
+(shape (rect F.Cu -200 -400 200 400))
+(attach off))
+(image P40 (pin PS40 1 0 0)) (padstack PS40
+(shape (rect F.Cu -200 -400 200 400))
+(attach off))
+(image P41 (pin PS41 1 0 0)) (padstack PS41
+(shape (rect F.Cu -200 -400 200 400))
+(attach off))
+(image P42 (pin PS42 1 0 0)) (padstack PS42
+(shape (rect F.Cu -200 -400 200 400))
+(attach off))
+(image P43 (pin PS43 1 0 0)) (padstack PS43
+(shape (rect F.Cu -200 -400 200 400))
+(attach off))
+(image P44 (pin PS44 1 0 0)) (padstack PS44
+(shape (rect F.Cu -200 -400 200 400))
+(attach off))
+(image P45 (pin PS45 1 0 0)) (padstack PS45
+(shape (rect F.Cu -200 -400 200 400))
+(attach off))
+(image P46 (pin PS46 1 0 0)) (padstack PS46
+(shape (rect F.Cu -200 -400 200 400))
+(attach off))
+(image P47 (pin PS47 1 0 0)) (padstack PS47
+(shape (rect F.Cu -200 -400 200 400))
+(attach off))
+(image P48 (pin PS48 1 0 0)) (padstack PS48
+(shape (rect F.Cu -725 -725 725 725))
+(attach off))
+(image P49 (pin PS49 1 0 0)) (padstack PS49
+(shape (rect F.Cu -725 -725 725 725))
+(attach off))
+(image P50 (pin PS50 1 0 0)) (padstack PS50
+(shape (rect F.Cu -725 -725 725 725))
+(attach off))
+(image P51 (pin PS51 1 0 0)) (padstack PS51
+(shape (rect F.Cu -725 -725 725 725))
+(attach off))
+(image P52 (pin PS52 1 0 0)) (padstack PS52
+(shape (rect F.Cu -725 -725 725 725))
+(attach off))
+(image P53 (pin PS53 1 0 0)) (padstack PS53
+(shape (rect F.Cu -725 -725 725 725))
+(attach off))
+(image P54 (pin PS54 1 0 0)) (padstack PS54
+(shape (rect F.Cu -725 -725 725 725))
+(attach off))
+(image P55 (pin PS55 1 0 0)) (padstack PS55
+(shape (rect F.Cu -725 -725 725 725))
+(attach off))
+(image P56 (pin PS56 1 0 0)) (padstack PS56
+(shape (rect F.Cu -725 -725 725 725))
+(attach off))
+(image P57 (pin PS57 1 0 0)) (padstack PS57
+(shape (rect F.Cu -350 -350 350 350))
+(attach off))
+(image P58 (pin PS58 1 0 0)) (padstack PS58
+(shape (rect F.Cu -350 -350 350 350))
+(attach off))
+(image P59 (pin PS59 1 0 0)) (padstack PS59
+(shape (rect F.Cu -350 -350 350 350))
+(attach off))
+(image P60 (pin PS60 1 0 0)) (padstack PS60
+(shape (rect F.Cu -350 -350 350 350))
+(attach off))
+(image P61 (pin PS61 1 0 0)) (padstack PS61
+(shape (rect F.Cu -125 -338 125 338))
+(attach off))
+(image P62 (pin PS62 1 0 0)) (padstack PS62
+(shape (rect F.Cu -125 -338 125 338))
+(attach off))
+(image P63 (pin PS63 1 0 0)) (padstack PS63
+(shape (rect F.Cu -125 -338 125 338))
+(attach off))
+(image P64 (pin PS64 1 0 0)) (padstack PS64
+(shape (rect F.Cu -125 -338 125 338))
+(attach off))
+(image P65 (pin PS65 1 0 0)) (padstack PS65
+(shape (rect F.Cu -125 -338 125 338))
+(attach off))
+(image P66 (pin PS66 1 0 0)) (padstack PS66
+(shape (rect F.Cu -125 -338 125 338))
+(attach off))
+(image P67 (pin PS67 1 0 0)) (padstack PS67
+(shape (rect F.Cu -338 -125 338 125))
+(attach off))
+(image P68 (pin PS68 1 0 0)) (padstack PS68
+(shape (rect F.Cu -338 -125 338 125))
+(attach off))
+(image P69 (pin PS69 1 0 0)) (padstack PS69
+(shape (rect F.Cu -338 -125 338 125))
+(attach off))
+(image P70 (pin PS70 1 0 0)) (padstack PS70
+(shape (rect F.Cu -338 -125 338 125))
+(attach off))
+(image P71 (pin PS71 1 0 0)) (padstack PS71
+(shape (rect F.Cu -338 -125 338 125))
+(attach off))
+(image P72 (pin PS72 1 0 0)) (padstack PS72
+(shape (rect F.Cu -338 -125 338 125))
+(attach off))
+(image P73 (pin PS73 1 0 0)) (padstack PS73
+(shape (rect F.Cu -338 -125 338 125))
+(attach off))
+(image P74 (pin PS74 1 0 0)) (padstack PS74
+(shape (rect F.Cu -338 -125 338 125))
+(attach off))
+(image P75 (pin PS75 1 0 0)) (padstack PS75
+(shape (rect F.Cu -150 -225 150 225))
+(attach off))
+(image P76 (pin PS76 1 0 0)) (padstack PS76
+(shape (rect F.Cu -150 -225 150 225))
+(attach off))
+(image P77 (pin PS77 1 0 0)) (padstack PS77
+(shape (rect F.Cu -150 -225 150 225))
+(attach off))
+(image P78 (pin PS78 1 0 0)) (padstack PS78
+(shape (rect F.Cu -150 -225 150 225))
+(attach off))
+(image P79 (pin PS79 1 0 0)) (padstack PS79
+(shape (rect F.Cu -225 -150 225 150))
+(attach off))
+(image P80 (pin PS80 1 0 0)) (padstack PS80
+(shape (rect F.Cu -225 -150 225 150))
+(attach off))
+(image P81 (pin PS81 1 0 0)) (padstack PS81
+(shape (rect F.Cu -225 -150 225 150))
+(attach off))
+(image P82 (pin PS82 1 0 0)) (padstack PS82
+(shape (rect F.Cu -225 -150 225 150))
+(attach off))
+(image P83 (pin PS83 1 0 0)) (padstack PS83
+(shape (rect F.Cu -150 -225 150 225))
+(attach off))
+(image P84 (pin PS84 1 0 0)) (padstack PS84
+(shape (rect F.Cu -150 -225 150 225))
+(attach off))
+(image P85 (pin PS85 1 0 0)) (padstack PS85
+(shape (rect F.Cu -150 -225 150 225))
+(attach off))
+(image P86 (pin PS86 1 0 0)) (padstack PS86
+(shape (rect F.Cu -150 -225 150 225))
+(attach off))
+(image P87 (pin PS87 1 0 0)) (padstack PS87
+(shape (rect F.Cu -225 -150 225 150))
+(attach off))
+(image P88 (pin PS88 1 0 0)) (padstack PS88
+(shape (rect F.Cu -225 -150 225 150))
+(attach off))
+(image P89 (pin PS89 1 0 0)) (padstack PS89
+(shape (rect F.Cu -225 -150 225 150))
+(attach off))
+(image P90 (pin PS90 1 0 0)) (padstack PS90
+(shape (rect F.Cu -225 -150 225 150))
+(attach off))
+(image P91 (pin PS91 1 0 0)) (padstack PS91
+(shape (rect F.Cu -412 -125 412 125))
+(attach off))
+(image P92 (pin PS92 1 0 0)) (padstack PS92
+(shape (rect F.Cu -412 -125 412 125))
+(attach off))
+(image P93 (pin PS93 1 0 0)) (padstack PS93
+(shape (rect F.Cu -412 -125 412 125))
+(attach off))
+(image P94 (pin PS94 1 0 0)) (padstack PS94
+(shape (rect F.Cu -412 -125 412 125))
+(attach off))
+(image P95 (pin PS95 1 0 0)) (padstack PS95
+(shape (rect F.Cu -125 -412 125 412))
+(attach off))
+(image P96 (pin PS96 1 0 0)) (padstack PS96
+(shape (rect F.Cu -125 -412 125 412))
+(attach off))
+(image P97 (pin PS97 1 0 0)) (padstack PS97
+(shape (rect F.Cu -125 -412 125 412))
+(attach off))
+(image P98 (pin PS98 1 0 0)) (padstack PS98
+(shape (rect F.Cu -125 -412 125 412))
+(attach off))
+(image P99 (pin PS99 1 0 0)) (padstack PS99
+(shape (rect F.Cu -412 -125 412 125))
+(attach off))
+(image P100 (pin PS100 1 0 0)) (padstack PS100
+(shape (rect F.Cu -412 -125 412 125))
+(attach off))
+(image P101 (pin PS101 1 0 0)) (padstack PS101
+(shape (rect F.Cu -412 -125 412 125))
+(attach off))
+(image P102 (pin PS102 1 0 0)) (padstack PS102
+(shape (rect F.Cu -412 -125 412 125))
+(attach off))
+(image P103 (pin PS103 1 0 0)) (padstack PS103
+(shape (rect F.Cu -125 -412 125 412))
+(attach off))
+(image P104 (pin PS104 1 0 0)) (padstack PS104
+(shape (rect F.Cu -125 -412 125 412))
+(attach off))
+(image P105 (pin PS105 1 0 0)) (padstack PS105
+(shape (rect F.Cu -125 -412 125 412))
+(attach off))
+(image P106 (pin PS106 1 0 0)) (padstack PS106
+(shape (rect F.Cu -125 -412 125 412))
+(attach off))
+(image P107 (pin PS107 1 0 0)) (padstack PS107
+(shape (rect F.Cu -840 -840 840 840))
+(attach off))
+(image P108 (pin PS108 1 0 0)) (padstack PS108
+(shape (rect F.Cu -250 -250 250 250))
+(shape (rect B.Cu -250 -250 250 250))
+(attach off))
+(image P109 (pin PS109 1 0 0)) (padstack PS109
+(shape (rect F.Cu -250 -250 250 250))
+(shape (rect B.Cu -250 -250 250 250))
+(attach off))
+(image P110 (pin PS110 1 0 0)) (padstack PS110
+(shape (rect F.Cu -250 -250 250 250))
+(shape (rect B.Cu -250 -250 250 250))
+(attach off))
+(image P111 (pin PS111 1 0 0)) (padstack PS111
+(shape (rect F.Cu -250 -250 250 250))
+(shape (rect B.Cu -250 -250 250 250))
+(attach off))
+(image P112 (pin PS112 1 0 0)) (padstack PS112
+(shape (rect B.Cu -840 -840 840 840))
+(attach off))
+(image P113 (pin PS113 1 0 0)) (padstack PS113
+(shape (rect F.Cu -662 -300 662 300))
+(attach off))
+(image P114 (pin PS114 1 0 0)) (padstack PS114
+(shape (rect F.Cu -662 -300 662 300))
+(attach off))
+(image P115 (pin PS115 1 0 0)) (padstack PS115
+(shape (rect F.Cu -662 -300 662 300))
+(attach off))
+(image P116 (pin PS116 1 0 0)) (padstack PS116
+(shape (rect F.Cu -662 -300 662 300))
+(attach off))
+(image P117 (pin PS117 1 0 0)) (padstack PS117
+(shape (rect F.Cu -662 -300 662 300))
+(attach off))
+(image P118 (pin PS118 1 0 0)) (padstack PS118
+(shape (rect F.Cu -500 -800 500 800))
+(shape (rect B.Cu -500 -800 500 800))
+(attach off))
+(image P119 (pin PS119 1 0 0)) (padstack PS119
+(shape (rect F.Cu -325 -325 325 325))
+(shape (rect B.Cu -325 -325 325 325))
+(attach off))
+(image P120 (pin PS120 1 0 0)) (padstack PS120
+(shape (rect F.Cu -500 -800 500 800))
+(shape (rect B.Cu -500 -800 500 800))
+(attach off))
+(image P121 (pin PS121 1 0 0)) (padstack PS121
+(shape (rect F.Cu -325 -325 325 325))
+(shape (rect B.Cu -325 -325 325 325))
+(attach off))
+(image P122 (pin PS122 1 0 0)) (padstack PS122
+(shape (rect F.Cu -500 -1050 500 1050))
+(shape (rect B.Cu -500 -1050 500 1050))
+(attach off))
+(image P123 (pin PS123 1 0 0)) (padstack PS123
+(shape (rect F.Cu -500 -1050 500 1050))
+(shape (rect B.Cu -500 -1050 500 1050))
+(attach off))
+(image P124 (pin PS124 1 0 0)) (padstack PS124
+(shape (rect F.Cu -150 -725 150 725))
+(attach off))
+(image P125 (pin PS125 1 0 0)) (padstack PS125
+(shape (rect F.Cu -150 -725 150 725))
+(attach off))
+(image P126 (pin PS126 1 0 0)) (padstack PS126
+(shape (rect F.Cu -150 -725 150 725))
+(attach off))
+(image P127 (pin PS127 1 0 0)) (padstack PS127
+(shape (rect F.Cu -150 -725 150 725))
+(attach off))
+(image P128 (pin PS128 1 0 0)) (padstack PS128
+(shape (rect F.Cu -150 -725 150 725))
+(attach off))
+(image P129 (pin PS129 1 0 0)) (padstack PS129
+(shape (rect F.Cu -150 -725 150 725))
+(attach off))
+(image P130 (pin PS130 1 0 0)) (padstack PS130
+(shape (rect F.Cu -150 -725 150 725))
+(attach off))
+(image P131 (pin PS131 1 0 0)) (padstack PS131
+(shape (rect F.Cu -150 -725 150 725))
+(attach off))
+(image P132 (pin PS132 1 0 0)) (padstack PS132
+(shape (rect F.Cu -300 -725 300 725))
+(attach off))
+(image P133 (pin PS133 1 0 0)) (padstack PS133
+(shape (rect F.Cu -300 -725 300 725))
+(attach off))
+(image P134 (pin PS134 1 0 0)) (padstack PS134
+(shape (rect F.Cu -300 -725 300 725))
+(attach off))
+(image P135 (pin PS135 1 0 0)) (padstack PS135
+(shape (rect F.Cu -300 -725 300 725))
+(attach off))
+(image P136 (pin PS136 1 0 0)) (padstack PS136
+(shape (rect F.Cu -300 -725 300 725))
+(attach off))
+(image P137 (pin PS137 1 0 0)) (padstack PS137
+(shape (rect F.Cu -300 -725 300 725))
+(attach off))
+(image P138 (pin PS138 1 0 0)) (padstack PS138
+(shape (rect F.Cu -300 -725 300 725))
+(attach off))
+(image P139 (pin PS139 1 0 0)) (padstack PS139
+(shape (rect F.Cu -300 -725 300 725))
+(attach off))
+(image P140 (pin PS140 1 0 0)) (padstack PS140
+(shape (rect F.Cu -600 -875 600 875))
+(shape (rect B.Cu -600 -875 600 875))
+(attach off))
+(image P141 (pin PS141 1 0 0)) (padstack PS141
+(shape (rect F.Cu -600 -875 600 875))
+(shape (rect B.Cu -600 -875 600 875))
+(attach off))
+(image P142 (pin PS142 1 0 0)) (padstack PS142
+(shape (rect F.Cu -600 -875 600 875))
+(shape (rect B.Cu -600 -875 600 875))
+(attach off))
+(image P143 (pin PS143 1 0 0)) (padstack PS143
+(shape (rect F.Cu -700 -700 700 700))
+(shape (rect B.Cu -700 -700 700 700))
+(attach off))
+(image P144 (pin PS144 1 0 0)) (padstack PS144
+(shape (rect F.Cu -700 -700 700 700))
+(shape (rect B.Cu -700 -700 700 700))
+(attach off))
+(image P145 (pin PS145 1 0 0)) (padstack PS145
+(shape (rect F.Cu -700 -700 700 700))
+(shape (rect B.Cu -700 -700 700 700))
+(attach off))
+(image P146 (pin PS146 1 0 0)) (padstack PS146
+(shape (rect F.Cu -700 -700 700 700))
+(shape (rect B.Cu -700 -700 700 700))
+(attach off))
+(image P147 (pin PS147 1 0 0)) (padstack PS147
+(shape (rect F.Cu -700 -700 700 700))
+(shape (rect B.Cu -700 -700 700 700))
+(attach off))
+(image P148 (pin PS148 1 0 0)) (padstack PS148
+(shape (rect F.Cu -700 -700 700 700))
+(shape (rect B.Cu -700 -700 700 700))
+(attach off))
+(image P149 (pin PS149 1 0 0)) (padstack PS149
+(shape (rect F.Cu -400 -475 400 475))
+(attach off))
+(image P150 (pin PS150 1 0 0)) (padstack PS150
+(shape (rect F.Cu -400 -475 400 475))
+(attach off))
+(image P151 (pin PS151 1 0 0)) (padstack PS151
+(shape (rect F.Cu -400 -475 400 475))
+(attach off))
+(image P152 (pin PS152 1 0 0)) (padstack PS152
+(shape (rect F.Cu -400 -475 400 475))
+(attach off))
+(image P153 (pin PS153 1 0 0)) (padstack PS153
+(shape (rect F.Cu -400 -475 400 475))
+(attach off))
+(image P154 (pin PS154 1 0 0)) (padstack PS154
+(shape (rect F.Cu -400 -475 400 475))
+(attach off))
+(image P155 (pin PS155 1 0 0)) (padstack PS155
+(shape (rect F.Cu -400 -475 400 475))
+(attach off))
+(image P156 (pin PS156 1 0 0)) (padstack PS156
+(shape (rect F.Cu -400 -475 400 475))
+(attach off))
+(image P157 (pin PS157 1 0 0)) (padstack PS157
+(shape (rect F.Cu -400 -475 400 475))
+(attach off))
+(image P158 (pin PS158 1 0 0)) (padstack PS158
+(shape (rect F.Cu -400 -475 400 475))
+(attach off))
+(image P159 (pin PS159 1 0 0)) (padstack PS159
+(shape (rect F.Cu -400 -475 400 475))
+(attach off))
+(image P160 (pin PS160 1 0 0)) (padstack PS160
+(shape (rect F.Cu -400 -475 400 475))
+(attach off))
+(image P161 (pin PS161 1 0 0)) (padstack PS161
+(shape (rect F.Cu -400 -475 400 475))
+(attach off))
+(image P162 (pin PS162 1 0 0)) (padstack PS162
+(shape (rect F.Cu -400 -475 400 475))
+(attach off))
+(image P163 (pin PS163 1 0 0)) (padstack PS163
+(shape (rect F.Cu -400 -475 400 475))
+(attach off))
+(image P164 (pin PS164 1 0 0)) (padstack PS164
+(shape (rect F.Cu -400 -475 400 475))
+(attach off))
+(image P165 (pin PS165 1 0 0)) (padstack PS165
+(shape (rect F.Cu -400 -475 400 475))
+(attach off))
+(image P166 (pin PS166 1 0 0)) (padstack PS166
+(shape (rect F.Cu -400 -475 400 475))
+(attach off))
+(image P167 (pin PS167 1 0 0)) (padstack PS167
+(shape (rect F.Cu -400 -475 400 475))
+(attach off))
+(image P168 (pin PS168 1 0 0)) (padstack PS168
+(shape (rect F.Cu -400 -475 400 475))
+(attach off))
+(image P169 (pin PS169 1 0 0)) (padstack PS169
+(shape (rect F.Cu -400 -475 400 475))
+(attach off))
+(image P170 (pin PS170 1 0 0)) (padstack PS170
+(shape (rect F.Cu -400 -475 400 475))
+(attach off))
+(image P171 (pin PS171 1 0 0)) (padstack PS171
+(shape (rect F.Cu -400 -475 400 475))
+(attach off))
+(image P172 (pin PS172 1 0 0)) (padstack PS172
+(shape (rect F.Cu -400 -475 400 475))
+(attach off))
+(image P173 (pin PS173 1 0 0)) (padstack PS173
+(shape (rect F.Cu -400 -475 400 475))
+(attach off))
+(image P174 (pin PS174 1 0 0)) (padstack PS174
+(shape (rect F.Cu -400 -475 400 475))
+(attach off))
+(image P175 (pin PS175 1 0 0)) (padstack PS175
+(shape (rect F.Cu -400 -475 400 475))
+(attach off))
+(image P176 (pin PS176 1 0 0)) (padstack PS176
+(shape (rect F.Cu -400 -475 400 475))
+(attach off))
+(image P177 (pin PS177 1 0 0)) (padstack PS177
+(shape (rect F.Cu -400 -475 400 475))
+(attach off))
+(image P178 (pin PS178 1 0 0)) (padstack PS178
+(shape (rect F.Cu -400 -475 400 475))
+(attach off))
+(image P179 (pin PS179 1 0 0)) (padstack PS179
+(shape (rect F.Cu -400 -475 400 475))
+(attach off))
+(image P180 (pin PS180 1 0 0)) (padstack PS180
+(shape (rect F.Cu -400 -475 400 475))
+(attach off))
+(image P181 (pin PS181 1 0 0)) (padstack PS181
+(shape (rect F.Cu -450 -475 450 475))
+(attach off))
+(image P182 (pin PS182 1 0 0)) (padstack PS182
+(shape (rect F.Cu -450 -475 450 475))
+(attach off))
+(image P183 (pin PS183 1 0 0)) (padstack PS183
+(shape (rect F.Cu -450 -475 450 475))
+(attach off))
+(image P184 (pin PS184 1 0 0)) (padstack PS184
+(shape (rect F.Cu -450 -475 450 475))
+(attach off))
+(image P185 (pin PS185 1 0 0)) (padstack PS185
+(shape (rect F.Cu -450 -475 450 475))
+(attach off))
+(image P186 (pin PS186 1 0 0)) (padstack PS186
+(shape (rect F.Cu -450 -475 450 475))
+(attach off))
+(image P187 (pin PS187 1 0 0)) (padstack PS187
+(shape (rect F.Cu -500 -725 500 725))
+(attach off))
+(image P188 (pin PS188 1 0 0)) (padstack PS188
+(shape (rect F.Cu -500 -725 500 725))
+(attach off))
+(image P189 (pin PS189 1 0 0)) (padstack PS189
+(shape (rect F.Cu -450 -475 450 475))
+(attach off))
+(image P190 (pin PS190 1 0 0)) (padstack PS190
+(shape (rect F.Cu -450 -475 450 475))
+(attach off))
+(image P191 (pin PS191 1 0 0)) (padstack PS191
+(shape (rect F.Cu -450 -475 450 475))
+(attach off))
+(image P192 (pin PS192 1 0 0)) (padstack PS192
+(shape (rect F.Cu -450 -475 450 475))
+(attach off))
+(image P193 (pin PS193 1 0 0)) (padstack PS193
+(shape (rect F.Cu -500 -725 500 725))
+(attach off))
+(image P194 (pin PS194 1 0 0)) (padstack PS194
+(shape (rect F.Cu -500 -725 500 725))
+(attach off))
+(image P195 (pin PS195 1 0 0)) (padstack PS195
+(shape (rect F.Cu -500 -725 500 725))
+(attach off))
+(image P196 (pin PS196 1 0 0)) (padstack PS196
+(shape (rect F.Cu -500 -725 500 725))
+(attach off))
+(image P197 (pin PS197 1 0 0)) (padstack PS197
+(shape (rect F.Cu -500 -725 500 725))
+(attach off))
+(image P198 (pin PS198 1 0 0)) (padstack PS198
+(shape (rect F.Cu -500 -725 500 725))
+(attach off))
+(image P199 (pin PS199 1 0 0)) (padstack PS199
+(shape (rect F.Cu -500 -725 500 725))
+(attach off))
+(image P200 (pin PS200 1 0 0)) (padstack PS200
+(shape (rect F.Cu -500 -725 500 725))
+(attach off))
+(image P201 (pin PS201 1 0 0)) (padstack PS201
+(shape (rect F.Cu -500 -725 500 725))
+(attach off))
+(image P202 (pin PS202 1 0 0)) (padstack PS202
+(shape (rect F.Cu -500 -725 500 725))
+(attach off))
+(image P203 (pin PS203 1 0 0)) (padstack PS203
+(shape (rect F.Cu -450 -475 450 475))
+(attach off))
+(image P204 (pin PS204 1 0 0)) (padstack PS204
+(shape (rect F.Cu -450 -475 450 475))
+(attach off))
+(image P205 (pin PS205 1 0 0)) (padstack PS205
+(shape (rect F.Cu -438 -475 438 475))
+(attach off))
+(image P206 (pin PS206 1 0 0)) (padstack PS206
+(shape (rect F.Cu -438 -475 438 475))
+(attach off))
+(image P207 (pin PS207 1 0 0)) (padstack PS207
+(shape (rect F.Cu -438 -475 438 475))
+(attach off))
+(image P208 (pin PS208 1 0 0)) (padstack PS208
+(shape (rect F.Cu -438 -475 438 475))
+(attach off))
+(image P209 (pin PS209 1 0 0)) (padstack PS209
+(shape (rect F.Cu -650 -650 650 650))
+(attach off))
+(image P210 (pin PS210 1 0 0)) (padstack PS210
+(shape (rect F.Cu -650 -650 650 650))
+(attach off))
+(image P211 (pin PS211 1 0 0)) (padstack PS211
+(shape (rect F.Cu -650 -650 650 650))
+(attach off))
+(image P212 (pin PS212 1 0 0)) (padstack PS212
+(shape (rect F.Cu -650 -650 650 650))
+(attach off))
+(image P213 (pin PS213 1 0 0)) (padstack PS213
+(shape (rect F.Cu -650 -650 650 650))
+(attach off))
+(image P214 (pin PS214 1 0 0)) (padstack PS214
+(shape (rect F.Cu -650 -650 650 650))
+(attach off))
+) (network
+(net "GND" (pins P0-1 P1-1 P10-1 P13-1 P35-1 P36-1 P37-1 P38-1 P39-1 P40-1 P41-1 P42-1 P43-1 P44-1 P45-1 P46-1 P47-1 P48-1 P49-1 P50-1 P51-1 P52-1 P53-1 P54-1 P55-1 P56-1 P57-1 P58-1 P59-1 P60-1 P65-1 P66-1 P67-1 P87-1 P89-1 P94-1 P95-1 P96-1 P98-1 P105-1 P107-1 P108-1 P109-1 P110-1 P111-1 P112-1 P114-1 P118-1 P120-1 P122-1 P123-1 P132-1 P135-1 P136-1 P139-1 P142-1 P143-1 P146-1 P164-1 P166-1 P168-1 P170-1 P172-1 P180-1 P182-1 P184-1 P186-1 P188-1 P190-1 P192-1 P194-1 P196-1 P198-1 P200-1 P202-1 P204-1 P205-1 P209-1))
+(net "+3V3" (pins P2-1 P63-1 P64-1 P71-1 P80-1 P117-1 P149-1 P151-1 P153-1 P155-1 P157-1 P159-1 P173-1 P181-1 P183-1 P185-1 P199-1 P201-1 P203-1 P210-1))
+(net "NC_3" (pins P3-1))
+(net "STRAP2" (pins P4-1 P156-1))
+(net "IMU_INT" (pins P5-1 P70-1))
+(net "NC_6" (pins P6-1))
+(net "CHIP_EN" (pins P7-1 P154-1 P189-1 P214-1))
+(net "NC_8" (pins P8-1))
+(net "NC_9" (pins P9-1))
+(net "BAT_ADC" (pins P11-1 P162-1 P163-1 P191-1))
+(net "NC_12" (pins P12-1))
+(net "NC_14" (pins P14-1))
+(net "LED_DRV" (pins P15-1 P175-1))
+(net "NC_16" (pins P16-1))
+(net "I2C_SDA" (pins P17-1 P62-1 P76-1 P150-1))
+(net "I2C_SCL" (pins P18-1 P61-1 P79-1 P152-1))
+(net "NC_19" (pins P19-1))
+(net "PGOOD" (pins P20-1 P97-1 P174-1))
+(net "STRAP8" (pins P21-1 P158-1))
+(net "BOOT" (pins P22-1 P160-1 P213-1))
+(net "NC_23" (pins P23-1))
+(net "NC_24" (pins P24-1))
+(net "NC_25" (pins P25-1))
+(net "NC_26" (pins P26-1))
+(net "NC_27" (pins P27-1))
+(net "NC_28" (pins P28-1))
+(net "UART_RX" (pins P29-1 P211-1))
+(net "UART_TX" (pins P30-1 P212-1))
+(net "NC_31" (pins P31-1))
+(net "NC_32" (pins P32-1))
+(net "NC_33" (pins P33-1))
+(net "NC_34" (pins P34-1))
+(net "NC_68" (pins P68-1))
+(net "NC_69" (pins P69-1))
+(net "NC_72" (pins P72-1))
+(net "NC_73" (pins P73-1))
+(net "NC_74" (pins P74-1))
+(net "NC_75" (pins P75-1))
+(net "NC_77" (pins P77-1))
+(net "NC_78" (pins P78-1))
+(net "NC_81" (pins P81-1))
+(net "NC_82" (pins P82-1))
+(net "NC_83" (pins P83-1))
+(net "NC_84" (pins P84-1))
+(net "NC_85" (pins P85-1))
+(net "NC_86" (pins P86-1))
+(net "NC_88" (pins P88-1))
+(net "MAG_CAP" (pins P90-1 P187-1))
+(net "BAT_NTC" (pins P91-1 P141-1))
+(net "VBAT" (pins P92-1 P93-1 P140-1 P148-1 P195-1))
+(net "CHG" (pins P99-1 P207-1))
+(net "VSYS" (pins P100-1 P101-1 P113-1 P145-1 P197-1))
+(net "CHG_ILIM" (pins P102-1 P167-1))
+(net "VBUS" (pins P103-1 P133-1 P134-1 P137-1 P138-1 P177-1 P193-1))
+(net "NC_104" (pins P104-1))
+(net "CHG_ISET" (pins P106-1 P165-1))
+(net "LDO_EN" (pins P115-1 P144-1 P179-1))
+(net "NC_116" (pins P116-1))
+(net "NC_119" (pins P119-1))
+(net "NC_121" (pins P121-1))
+(net "NC_124" (pins P124-1))
+(net "CC2" (pins P125-1 P171-1))
+(net "NC_126" (pins P126-1))
+(net "NC_127" (pins P127-1))
+(net "NC_128" (pins P128-1))
+(net "NC_129" (pins P129-1))
+(net "CC1" (pins P130-1 P169-1))
+(net "NC_131" (pins P131-1))
+(net "BAT_SENSE" (pins P147-1 P161-1))
+(net "LED_A" (pins P176-1 P206-1))
+(net "CHG_LED_A" (pins P178-1 P208-1))
+(class default "GND" "+3V3" "NC_3" "STRAP2" "IMU_INT" "NC_6" "CHIP_EN" "NC_8" "NC_9" "BAT_ADC" "NC_12" "NC_14" "LED_DRV" "NC_16" "I2C_SDA" "I2C_SCL" "NC_19" "PGOOD" "STRAP8" "BOOT" "NC_23" "NC_24" "NC_25" "NC_26" "NC_27" "NC_28" "UART_RX" "UART_TX" "NC_31" "NC_32" "NC_33" "NC_34" "NC_68" "NC_69" "NC_72" "NC_73" "NC_74" "NC_75" "NC_77" "NC_78" "NC_81" "NC_82" "NC_83" "NC_84" "NC_85" "NC_86" "NC_88" "MAG_CAP" "BAT_NTC" "VBAT" "CHG" "VSYS" "CHG_ILIM" "VBUS" "NC_104" "CHG_ISET" "LDO_EN" "NC_116" "NC_119" "NC_121" "NC_124" "CC2" "NC_126" "NC_127" "NC_128" "NC_129" "CC1" "NC_131" "BAT_SENSE" "LED_A" "CHG_LED_A" (circuit (use_via VIA)) (rule (width 200) (clearance 150)))) (wiring))

@@ -1,0 +1,46 @@
+{
+  "meta": {
+    "filename": "aetherpose_custom.kicad_pro",
+    "version": 1
+  },
+  "board": {
+    "design_settings": {
+      "rules": {
+        "min_clearance": 0.15,
+        "min_track_width": 0.2,
+        "min_via_annular_width": 0.1,
+        "min_via_diameter": 0.6,
+        "min_through_hole_diameter": 0.2,
+        "min_copper_edge_clearance": 0.15
+      }
+    }
+  },
+  "net_settings": {
+    "meta": {
+      "version": 3
+    },
+    "classes": [
+      {
+        "name": "Default",
+        "clearance": 0.15,
+        "track_width": 0.2,
+        "via_diameter": 0.6,
+        "via_drill": 0.3,
+        "uvia_diameter": 0.3,
+        "uvia_drill": 0.1,
+        "diff_pair_width": 0.2,
+        "diff_pair_gap": 0.25,
+        "diff_pair_via_gap": 0.25,
+        "bus_width": 12,
+        "line_style": 0,
+        "microvia_diameter": 0.3,
+        "microvia_drill": 0.1,
+        "pcb_color": "rgba(0, 0, 0, 0.000)",
+        "schematic_color": "rgba(0, 0, 0, 0.000)",
+        "wire_width": 6
+      }
+    ],
+    "netclass_assignments": {},
+    "netclass_patterns": []
+  }
+}

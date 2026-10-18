@@ -1,0 +1,5 @@
+Limited layout verification
+43 pads; 28 segments; 1 vias
+PASS: named-net continuity, 0.20mm circular-envelope copper clearance, 0.25mm edge/hole clearance.
+
+NOT CHECKED: KiCad parser/DRC, rectangular pad corners, mask/silkscreen, actual socket fit, RF performance, power integrity, fabricated hardware.

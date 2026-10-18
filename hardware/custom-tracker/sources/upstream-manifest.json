@@ -1,0 +1,92 @@
+[
+  {
+    "file": "Aetherpose.pretty\\C_0603_1608Metric.kicad_mod",
+    "url": "https://raw.githubusercontent.com/KiCad/kicad-footprints/master/Capacitor_SMD.pretty/C_0603_1608Metric.kicad_mod",
+    "sha256": "341de40ed02527c21b097661d4c2411c604c253ca12041f5eb4521bde00a8db4",
+    "bytes": 1787
+  },
+  {
+    "file": "Aetherpose.pretty\\C_0805_2012Metric.kicad_mod",
+    "url": "https://raw.githubusercontent.com/KiCad/kicad-footprints/master/Capacitor_SMD.pretty/C_0805_2012Metric.kicad_mod",
+    "sha256": "99fff2e6692af4126feb9f9ebdfd454834bf414b13d04be0d075dffc23cfbd02",
+    "bytes": 1883
+  },
+  {
+    "file": "Aetherpose.pretty\\R_0603_1608Metric.kicad_mod",
+    "url": "https://raw.githubusercontent.com/KiCad/kicad-footprints/master/Resistor_SMD.pretty/R_0603_1608Metric.kicad_mod",
+    "sha256": "effcae403a15810b3a1947b8664576270d6781e7cd525e97c47d48be0fdae8ce",
+    "bytes": 1820
+  },
+  {
+    "file": "Aetherpose.pretty\\LED_0603_1608Metric.kicad_mod",
+    "url": "https://raw.githubusercontent.com/KiCad/kicad-footprints/master/LED_SMD.pretty/LED_0603_1608Metric.kicad_mod",
+    "sha256": "bb81da1c962cd7aba9e33f388e6d173209ac75daa4b3ade9fdec3ba9ec57fca1",
+    "bytes": 1888
+  },
+  {
+    "file": "Aetherpose.pretty\\SOT-23-5.kicad_mod",
+    "url": "https://raw.githubusercontent.com/KiCad/kicad-footprints/master/Package_TO_SOT_SMD.pretty/SOT-23-5.kicad_mod",
+    "sha256": "559f4c60fd9a2f3b575b5c4efb9bcb51863ea2c8e3837c27504059c8fa704827",
+    "bytes": 2208
+  },
+  {
+    "file": "Aetherpose.pretty\\Bosch_LGA-14_3x2.5mm_P0.5mm.kicad_mod",
+    "url": "https://raw.githubusercontent.com/KiCad/kicad-footprints/master/Package_LGA.pretty/Bosch_LGA-14_3x2.5mm_P0.5mm.kicad_mod",
+    "sha256": "e0683049543e0f2b60c440cc92548685d211a4fa81e99571c6c6f8eaa6b7e379",
+    "bytes": 3057
+  },
+  {
+    "file": "Aetherpose.pretty\\LGA-16_3x3mm_P0.5mm.kicad_mod",
+    "url": "https://raw.githubusercontent.com/KiCad/kicad-footprints/master/Package_LGA.pretty/LGA-16_3x3mm_P0.5mm.kicad_mod",
+    "sha256": "ec84fea2fbb4bb8bc0dc0c09b03f3d43d8d59ccb8ff09f4424b030183a880ddf",
+    "bytes": 3230
+  },
+  {
+    "file": "Aetherpose.pretty\\VQFN-16-1EP_3x3mm_P0.5mm_EP1.68x1.68mm_ThermalVias.kicad_mod",
+    "url": "https://raw.githubusercontent.com/KiCad/kicad-footprints/master/Package_DFN_QFN.pretty/VQFN-16-1EP_3x3mm_P0.5mm_EP1.68x1.68mm_ThermalVias.kicad_mod",
+    "sha256": "3bb49912f7d4bf2c711361717df6326f400142876704ebc60dc5c24775603595",
+    "bytes": 4673
+  },
+  {
+    "file": "Aetherpose.pretty\\USB_C_Receptacle_HRO_TYPE-C-31-M-12.kicad_mod",
+    "url": "https://raw.githubusercontent.com/KiCad/kicad-footprints/master/Connector_USB.pretty/USB_C_Receptacle_HRO_TYPE-C-31-M-12.kicad_mod",
+    "sha256": "fb2f6f4612d3328c13dac718ce742ee6c5a88847b8a1b440b83032bfb8879edd",
+    "bytes": 3593
+  },
+  {
+    "file": "Aetherpose.pretty\\JST_PH_B3B-PH-K_1x03_P2.00mm_Vertical.kicad_mod",
+    "url": "https://raw.githubusercontent.com/KiCad/kicad-footprints/master/Connector_JST.pretty/JST_PH_B3B-PH-K_1x03_P2.00mm_Vertical.kicad_mod",
+    "sha256": "8582a1960e700ab11f4c7fffe56a5d0f2a2fb5a20a4afb40381713f19f32c8d1",
+    "bytes": 3931
+  },
+  {
+    "file": "Aetherpose.pretty\\SW_CuK_JS202011CQN_DPDT_Straight.kicad_mod",
+    "url": "https://raw.githubusercontent.com/KiCad/kicad-footprints/master/Button_Switch_THT.pretty/SW_CuK_JS202011CQN_DPDT_Straight.kicad_mod",
+    "sha256": "0cb6b902a73a4cacf1d7712678bab58f7afc72671abea85b9d9e4f013325058d",
+    "bytes": 2473
+  },
+  {
+    "file": "Aetherpose.pretty\\SW_SPST_TL3342.kicad_mod",
+    "url": "https://raw.githubusercontent.com/KiCad/kicad-footprints/master/Button_Switch_SMD.pretty/SW_SPST_TL3342.kicad_mod",
+    "sha256": "62fc42de4b8c06cb33a745287fbfef1d9713586fe8a165292960add3931145db",
+    "bytes": 4105
+  },
+  {
+    "file": "Aetherpose.pretty\\ESP32-C3-MINI-1.kicad_mod",
+    "url": "https://raw.githubusercontent.com/espressif/kicad-libraries/main/footprints/Espressif.pretty/ESP32-C3-MINI-1.kicad_mod",
+    "sha256": "f1899b54ab6c007d50e76334f3fb8f340a827bc1d26f1ba24003333c214a7626",
+    "bytes": 13519
+  },
+  {
+    "file": "sources\\qmc5883p.pdf",
+    "url": "https://www.qstcorp.com/upload/pdf/202512/2C939E5AA0704285BC3BE71132B8629B.pdf",
+    "sha256": "fb2dc97702927301479598ef88b47764acf4113a96d0b94c0f0fb6a2677e9296",
+    "bytes": 996002
+  },
+  {
+    "file": "sources\\freerouting-1.9.0.jar",
+    "url": "https://github.com/freerouting/freerouting/releases/download/v1.9.0/freerouting-1.9.0.jar",
+    "sha256": "9084a4888937a7f31f857ecc12aa7a37407f51160e4d2892dff9c9bb47ae3102",
+    "bytes": 5044336
+  }
+]

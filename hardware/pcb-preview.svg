@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="880" viewBox="-5 -8 70 62">
+<rect x="-5" y="-8" width="70" height="62" fill="#101827"/>
+<text x="0" y="-4" fill="white" font-size="2">Aetherpose Nano 33 BLE carrier — v0.1 draft</text>
+<rect width="60" height="50" rx="0.4" fill="#163b32" stroke="#ddd" stroke-width=".15"/>
+<rect x="7" y="10.6" width="45" height="18" fill="none" stroke="#81d4fa" stroke-width=".2" stroke-dasharray="1 .5"/>
+<rect x="43" y="14" width="12" height="11" fill="#e0a030" opacity=".25"/>
+<path d="M 18 36 L 18 38" stroke="#ee776c" stroke-width="0.6"/>
+<path d="M 18 38 L 8 38" stroke="#ee776c" stroke-width="0.6"/>
+<path d="M 8 38 L 8 43" stroke="#ee776c" stroke-width="0.6"/>
+<path d="M 10.54 43 L 10.54 28.7" stroke="#72aaff" stroke-width="0.6"/>
+<path d="M 10.54 28.7 L 12 27.24" stroke="#72aaff" stroke-width="0.6"/>
+<path d="M 20.54 36 L 20.54 40" stroke="#ee776c" stroke-width="0.4"/>
+<path d="M 20.54 40 L 13.08 40" stroke="#ee776c" stroke-width="0.4"/>
+<path d="M 13.08 40 L 13.08 43" stroke="#ee776c" stroke-width="0.4"/>
+<path d="M 15.62 43 L 15.62 45" stroke="#ee776c" stroke-width="0.4"/>
+<path d="M 15.62 45 L 29 45" stroke="#ee776c" stroke-width="0.4"/>
+<path d="M 29 45 L 29 36" stroke="#ee776c" stroke-width="0.4"/>
+<path d="M 29 36 L 31 36" stroke="#ee776c" stroke-width="0.4"/>
+<path d="M 38.62 41 L 38.62 29" stroke="#ee776c" stroke-width="0.3"/>
+<path d="M 38.62 29 L 39.94 27.24" stroke="#ee776c" stroke-width="0.3"/>
+<path d="M 38.62 32 L 41 32" stroke="#ee776c" stroke-width="0.3"/>
+<path d="M 14.54 27.24 L 14.54 31" stroke="#72aaff" stroke-width="0.6"/>
+<path d="M 14.54 31 L 25 31" stroke="#72aaff" stroke-width="0.6"/>
+<path d="M 25 31 L 23.08 33" stroke="#72aaff" stroke-width="0.6"/>
+<path d="M 23.08 33 L 23.08 36" stroke="#72aaff" stroke-width="0.6"/>
+<path d="M 23.08 36 L 23.08 47" stroke="#72aaff" stroke-width="0.6"/>
+<path d="M 23.08 47 L 46.24 47" stroke="#72aaff" stroke-width="0.6"/>
+<path d="M 46.24 47 L 46.24 41" stroke="#72aaff" stroke-width="0.6"/>
+<path d="M 46.24 41 L 46.24 32" stroke="#72aaff" stroke-width="0.6"/>
+<path d="M 46.24 32 L 43.54 32" stroke="#72aaff" stroke-width="0.6"/>
+<path d="M 19.62 12 L 19.62 8" stroke="#ee776c" stroke-width="0.4"/>
+<path d="M 19.62 8 L 6 8" stroke="#ee776c" stroke-width="0.4"/>
+<path d="M 6 8 L 6 30" stroke="#ee776c" stroke-width="0.4"/>
+<path d="M 6 30 L 14.54 30" stroke="#ee776c" stroke-width="0.4"/>
+<circle cx="47.56" cy="27.24" r=".9" fill="#d9bd73"/><circle cx="47.56" cy="27.24" r=".5" fill="#101827"/>
+<circle cx="45.02" cy="27.24" r=".9" fill="#d9bd73"/><circle cx="45.02" cy="27.24" r=".5" fill="#101827"/>
+<circle cx="42.48" cy="27.24" r=".9" fill="#d9bd73"/><circle cx="42.48" cy="27.24" r=".5" fill="#101827"/>
+<circle cx="39.94" cy="27.24" r=".9" fill="#d9bd73"/><circle cx="39.94" cy="27.24" r=".5" fill="#101827"/>
+<circle cx="37.4" cy="27.24" r=".9" fill="#d9bd73"/><circle cx="37.4" cy="27.24" r=".5" fill="#101827"/>
+<circle cx="34.86" cy="27.24" r=".9" fill="#d9bd73"/><circle cx="34.86" cy="27.24" r=".5" fill="#101827"/>
+<circle cx="32.32" cy="27.24" r=".9" fill="#d9bd73"/><circle cx="32.32" cy="27.24" r=".5" fill="#101827"/>
+<circle cx="29.78" cy="27.24" r=".9" fill="#d9bd73"/><circle cx="29.78" cy="27.24" r=".5" fill="#101827"/>
+<circle cx="27.24" cy="27.24" r=".9" fill="#d9bd73"/><circle cx="27.24" cy="27.24" r=".5" fill="#101827"/>
+<circle cx="24.7" cy="27.24" r=".9" fill="#d9bd73"/><circle cx="24.7" cy="27.24" r=".5" fill="#101827"/>
+<circle cx="22.16" cy="27.24" r=".9" fill="#d9bd73"/><circle cx="22.16" cy="27.24" r=".5" fill="#101827"/>
+<circle cx="19.62" cy="27.24" r=".9" fill="#d9bd73"/><circle cx="19.62" cy="27.24" r=".5" fill="#101827"/>
+<circle cx="17.08" cy="27.24" r=".9" fill="#d9bd73"/><circle cx="17.08" cy="27.24" r=".5" fill="#101827"/>
+<circle cx="14.54" cy="27.24" r=".9" fill="#d9bd73"/><circle cx="14.54" cy="27.24" r=".5" fill="#101827"/>
+<circle cx="12.0" cy="27.24" r=".9" fill="#d9bd73"/><circle cx="12.0" cy="27.24" r=".5" fill="#101827"/>
+<circle cx="12.0" cy="12" r=".9" fill="#d9bd73"/><circle cx="12.0" cy="12" r=".5" fill="#101827"/>
+<circle cx="14.54" cy="12" r=".9" fill="#d9bd73"/><circle cx="14.54" cy="12" r=".5" fill="#101827"/>
+<circle cx="17.08" cy="12" r=".9" fill="#d9bd73"/><circle cx="17.08" cy="12" r=".5" fill="#101827"/>
+<circle cx="19.62" cy="12" r=".9" fill="#d9bd73"/><circle cx="19.62" cy="12" r=".5" fill="#101827"/>
+<circle cx="22.16" cy="12" r=".9" fill="#d9bd73"/><circle cx="22.16" cy="12" r=".5" fill="#101827"/>
+<circle cx="24.7" cy="12" r=".9" fill="#d9bd73"/><circle cx="24.7" cy="12" r=".5" fill="#101827"/>
+<circle cx="27.24" cy="12" r=".9" fill="#d9bd73"/><circle cx="27.24" cy="12" r=".5" fill="#101827"/>
+<circle cx="29.78" cy="12" r=".9" fill="#d9bd73"/><circle cx="29.78" cy="12" r=".5" fill="#101827"/>
+<circle cx="32.32" cy="12" r=".9" fill="#d9bd73"/><circle cx="32.32" cy="12" r=".5" fill="#101827"/>
+<circle cx="34.86" cy="12" r=".9" fill="#d9bd73"/><circle cx="34.86" cy="12" r=".5" fill="#101827"/>
+<circle cx="37.4" cy="12" r=".9" fill="#d9bd73"/><circle cx="37.4" cy="12" r=".5" fill="#101827"/>
+<circle cx="39.94" cy="12" r=".9" fill="#d9bd73"/><circle cx="39.94" cy="12" r=".5" fill="#101827"/>
+<circle cx="42.48" cy="12" r=".9" fill="#d9bd73"/><circle cx="42.48" cy="12" r=".5" fill="#101827"/>
+<circle cx="45.02" cy="12" r=".9" fill="#d9bd73"/><circle cx="45.02" cy="12" r=".5" fill="#101827"/>
+<circle cx="47.56" cy="12" r=".9" fill="#d9bd73"/><circle cx="47.56" cy="12" r=".5" fill="#101827"/>
+<circle cx="18" cy="36" r=".9" fill="#d9bd73"/><circle cx="18" cy="36" r=".5" fill="#101827"/>
+<circle cx="20.54" cy="36" r=".9" fill="#d9bd73"/><circle cx="20.54" cy="36" r=".5" fill="#101827"/>
+<circle cx="23.08" cy="36" r=".9" fill="#d9bd73"/><circle cx="23.08" cy="36" r=".5" fill="#101827"/>
+<circle cx="8" cy="43" r=".9" fill="#d9bd73"/><circle cx="8" cy="43" r=".5" fill="#101827"/>
+<circle cx="10.54" cy="43" r=".9" fill="#d9bd73"/><circle cx="10.54" cy="43" r=".5" fill="#101827"/>
+<circle cx="13.08" cy="43" r=".9" fill="#d9bd73"/><circle cx="13.08" cy="43" r=".5" fill="#101827"/>
+<circle cx="15.62" cy="43" r=".9" fill="#d9bd73"/><circle cx="15.62" cy="43" r=".5" fill="#101827"/>
+<circle cx="31" cy="36" r=".9" fill="#d9bd73"/><circle cx="31" cy="36" r=".5" fill="#101827"/>
+<circle cx="38.62" cy="36" r=".9" fill="#d9bd73"/><circle cx="38.62" cy="36" r=".5" fill="#101827"/>
+<circle cx="38.62" cy="41" r=".9" fill="#d9bd73"/><circle cx="38.62" cy="41" r=".5" fill="#101827"/>
+<circle cx="46.24" cy="41" r=".9" fill="#d9bd73"/><circle cx="46.24" cy="41" r=".5" fill="#101827"/>
+<circle cx="41" cy="32" r=".9" fill="#d9bd73"/><circle cx="41" cy="32" r=".5" fill="#101827"/>
+<circle cx="43.54" cy="32" r=".9" fill="#d9bd73"/><circle cx="43.54" cy="32" r=".5" fill="#101827"/>
+<circle cx="4" cy="4" r="1.6" fill="#101827" stroke="#bbb" stroke-width=".15"/>
+<circle cx="56" cy="4" r="1.6" fill="#101827" stroke="#bbb" stroke-width=".15"/>
+<circle cx="4" cy="46" r="1.6" fill="#101827" stroke="#bbb" stroke-width=".15"/>
+<circle cx="56" cy="46" r="1.6" fill="#101827" stroke="#bbb" stroke-width=".15"/>
+<text x="8" y="20" fill="white" font-size="1.15">USB LEFT</text>
+<text x="44" y="18" fill="white" font-size="1.15">ANTENNA</text>
+<text x="44" y="21" fill="white" font-size="1.15">NO METAL</text>
+<text x="17" y="33" fill="white" font-size="1.15">J1: 5V BAT GND</text>
+<text x="6" y="48" fill="white" font-size="1.15">DPST SWITCH</text>
+<text x="30" y="34" fill="white" font-size="1.15">R1 100k</text>
+<text x="38" y="44" fill="white" font-size="1.15">R2 100k</text>
+<text x="40" y="30" fill="white" font-size="1.15">C1 100n</text>
+<text x="1" y="53" fill="white" font-size="1.15">60 x 50 mm / 2 layers / all dimensions provisional</text>
+</svg>

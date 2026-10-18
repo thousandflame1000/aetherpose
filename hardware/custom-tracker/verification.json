@@ -1,0 +1,159 @@
+{
+  "status": "PASS",
+  "parts": 44,
+  "pads": 215,
+  "segments": 588,
+  "vias": 38,
+  "named_nets": 28,
+  "minimum_conservative_clearance_mm": 0.15069999999999692,
+  "errors": [],
+  "connectivity": {
+    "+3V3": {
+      "objects": 116,
+      "connected": 116,
+      "missing": []
+    },
+    "BAT_ADC": {
+      "objects": 19,
+      "connected": 19,
+      "missing": []
+    },
+    "BAT_NTC": {
+      "objects": 16,
+      "connected": 16,
+      "missing": []
+    },
+    "BAT_SENSE": {
+      "objects": 9,
+      "connected": 9,
+      "missing": []
+    },
+    "BOOT": {
+      "objects": 19,
+      "connected": 19,
+      "missing": []
+    },
+    "CC1": {
+      "objects": 7,
+      "connected": 7,
+      "missing": []
+    },
+    "CC2": {
+      "objects": 6,
+      "connected": 6,
+      "missing": []
+    },
+    "CHG": {
+      "objects": 8,
+      "connected": 8,
+      "missing": []
+    },
+    "CHG_ILIM": {
+      "objects": 7,
+      "connected": 7,
+      "missing": []
+    },
+    "CHG_ISET": {
+      "objects": 9,
+      "connected": 9,
+      "missing": []
+    },
+    "CHG_LED_A": {
+      "objects": 5,
+      "connected": 5,
+      "missing": []
+    },
+    "CHIP_EN": {
+      "objects": 25,
+      "connected": 25,
+      "missing": []
+    },
+    "GND": {
+      "objects": 296,
+      "connected": 296,
+      "missing": []
+    },
+    "I2C_SCL": {
+      "objects": 23,
+      "connected": 23,
+      "missing": []
+    },
+    "I2C_SDA": {
+      "objects": 19,
+      "connected": 19,
+      "missing": []
+    },
+    "IMU_INT": {
+      "objects": 9,
+      "connected": 9,
+      "missing": []
+    },
+    "LDO_EN": {
+      "objects": 18,
+      "connected": 18,
+      "missing": []
+    },
+    "LED_A": {
+      "objects": 8,
+      "connected": 8,
+      "missing": []
+    },
+    "LED_DRV": {
+      "objects": 16,
+      "connected": 16,
+      "missing": []
+    },
+    "MAG_CAP": {
+      "objects": 11,
+      "connected": 11,
+      "missing": []
+    },
+    "PGOOD": {
+      "objects": 23,
+      "connected": 23,
+      "missing": []
+    },
+    "STRAP2": {
+      "objects": 7,
+      "connected": 7,
+      "missing": []
+    },
+    "STRAP8": {
+      "objects": 11,
+      "connected": 11,
+      "missing": []
+    },
+    "UART_RX": {
+      "objects": 8,
+      "connected": 8,
+      "missing": []
+    },
+    "UART_TX": {
+      "objects": 10,
+      "connected": 10,
+      "missing": []
+    },
+    "VBAT": {
+      "objects": 25,
+      "connected": 25,
+      "missing": []
+    },
+    "VBUS": {
+      "objects": 40,
+      "connected": 40,
+      "missing": []
+    },
+    "VSYS": {
+      "objects": 28,
+      "connected": 28,
+      "missing": []
+    }
+  },
+  "limitations": [
+    "Independent rectangular-pad copper check, not KiCad DRC",
+    "No KiCad parser/footprint-courtyard/silkscreen/paste/thermal/EMC validation",
+    "Schematic block pins use passive electrical type; ERC is not a power-design sign-off",
+    "Manufacturer land-pattern final review and prototype electrical/radio testing required",
+    "Firmware has not been ported or tested on this board"
+  ]
+}

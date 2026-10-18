@@ -1,0 +1,14 @@
+﻿Status,Reference,Description,Per_tracker,Six_trackers,Notes
+DEPRECATED - use custom-tracker/bom.csv,PCB,Carrier 60x50mm 2-layer 1.6mm,1,6,Prototype draft requires KiCad DRC
+DEPRECATED - use custom-tracker/bom.csv,U1,Arduino Nano 33 BLE ABX00030 or ABX00034 LSM9DS1,1,6,Do not substitute Rev2 without firmware review
+DEPRECATED - use custom-tracker/bom.csv,U1_socket,Socket 1x15 pitch 2.54mm drill 1mm,2,12,15.24mm row separation; verify physical fit
+DEPRECATED - use custom-tracker/bom.csv,J1,Header 1x03 pitch 2.54mm,1,6,5V BAT GND external module wiring
+DEPRECATED - use custom-tracker/bom.csv,J2,Header 1x04 pitch 2.54mm,1,6,External DPST switch wiring
+DEPRECATED - use custom-tracker/bom.csv,R1 R2,100k ohm 1 percent axial DIN0207 pitch 7.62mm,2,12,Through hole
+DEPRECATED - use custom-tracker/bom.csv,C1,100nF ceramic pitch 2.54mm rated >=10V,1,6,Through hole
+DEPRECATED - use custom-tracker/bom.csv,SW1,External DPST ON-OFF switch rated >=0.5A at 5VDC,1,6,Verify datasheet; no on-board switch footprint
+DEPRECATED - use custom-tracker/bom.csv,PSU,External Adafruit PowerBoost 1000C reference module,1,6,Charge current 1A; separate enclosure compartment
+DEPRECATED - use custom-tracker/bom.csv,BAT,Protected 1S LiPo nominal 3.7V approx 2000mAh,1,6,Must permit >=1A charging and match connector polarity
+DEPRECATED - use custom-tracker/bom.csv,H1-H4,M3 nylon fastener set with spacer,4,24,Verify case height
+DEPRECATED - use custom-tracker/bom.csv,CASE,Insulated wearable enclosure with strap,1,6,Not supplied; accommodate external PSU and battery
+DEPRECATED - use custom-tracker/bom.csv,HARNESS,Insulated wiring and mating connectors,1,6,Three PSU conductors plus four switch conductors

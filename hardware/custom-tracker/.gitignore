@@ -1,0 +1,9 @@
+sources/*.jar
+sources/*.pdf
+sources/*.txt
+sources/*.png
+freerouting.json
+router*.log
+*.log
+*.lck
+__pycache__/
