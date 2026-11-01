@@ -25,6 +25,7 @@ class RealtimeFusion:
   self.complete_streak=0;self.filter=None if initial is None else RotationOneEuro(initial)
   self.effective_camera=None;self.diagnostics={}
   self.camera_gate=None
+  self.has_model_prior=False
 
  def configure(self,*,stabilize,constraints):
   if type(stabilize) is not bool or type(constraints) is not bool:raise ValueError('追蹤選項必須是開啟或關閉。')
@@ -37,6 +38,7 @@ class RealtimeFusion:
   if elapsed is not None and elapsed>.35:self.filter=None
   self.last_at=at
   active=False;rejected=[]
+  self.has_model_prior=prior is not None
   q,c=(None,None) if camera is None else camera
   new_camera=camera is not None and camera_at!=self.last_camera_at
   if new_camera:
@@ -52,7 +54,7 @@ class RealtimeFusion:
   if base is not None:base[0]=yaw@base[0]
   safe_c,safe_axes=None,{}
   if camera is not None:
-   if not sensors or self.complete_streak>=3:safe_c,safe_axes,rejected=c,axes,[]
+   if not sensors:safe_c,safe_axes,rejected=c,axes,[]
    elif new_camera or self.camera_gate is None:
     self.camera_gate=self.consistent_camera(q,c,axes,corrected,previous,base)
     safe_c,safe_axes,rejected=self.camera_gate
@@ -74,7 +76,7 @@ class RealtimeFusion:
   self.diagnostics=dict(joint_constraints=self.constraints,rotation_filter=self.stabilize,
    constraint_profile=self.kinematic.profile,heading_feedback_deg=round(float(np.degrees(self.correction)),3),
    heading_feedback_active=active,camera_rejected_bones=len(rejected),camera_fused=cam is not None,
-   tracking_version='realtime-v1',pose_sample_interval_ms=round(dt*1000,2))
+   tracking_version='realtime-v2',pose_sample_interval_ms=round(dt*1000,2))
   return raw,output,observed,yaw
  def yaw_feedback(self,q,c,sensors,previous,dt):
   # Conservative common-heading feedback needs a central body reference.
@@ -92,6 +94,7 @@ class RealtimeFusion:
   if 0 in sensors:
    add(self.fusion.rest[1]-self.fusion.rest[2],q[1]-q[2],sensors[0],min(c[1],c[2],c[12]),6)
   for j,R in sensors.items():
+   if j==0:continue
    for child in self.fusion.children[j]:
     add(self.fusion.rest[child]-self.fusion.rest[j],q[child]-q[j],R,min(c[j],c[child]))
   if not candidates:return previous,False
@@ -99,6 +102,9 @@ class RealtimeFusion:
   for target,w in candidates:
    s+=w
    if s>=total/2:break
+  if getattr(self,'has_model_prior',False):
+   agreeing=[v for v,_ in candidates if abs(wrap(v-target))<np.deg2rad(8)]
+   if len(agreeing)<3 or abs(wrap(target-previous))<np.deg2rad(5):return previous,False
   # Common heading error only. No axial twist/bias oracle or hidden joint truth.
   step=(1-np.exp(-dt/.8))*wrap(target-previous)
   step=np.clip(step,-np.deg2rad(18)*dt,np.deg2rad(18)*dt)
@@ -108,9 +114,12 @@ class RealtimeFusion:
   predicted,_=self.fusion.fit(previous,sensors=sensors,prior=prior)
   G=global_rotations(predicted,self.fusion.parents);filtered=c.copy();rejected=[]
   for j in range(24):
+   if j in sensors:orientation=sensors[j]
+   elif prior is not None or self.complete_streak>=3:continue
+   else:orientation=G[j]
    for child in self.fusion.children[j]:
     if min(c[j],c[child])<.65:continue
-    target=q[child]-q[j];expected=G[j]@(self.fusion.rest[child]-self.fusion.rest[j])
+    target=q[child]-q[j];expected=orientation@(self.fusion.rest[child]-self.fusion.rest[j])
     lengths=np.linalg.norm(target)*np.linalg.norm(expected)
     if lengths<1e-8:continue
     angle=np.arccos(np.clip(np.dot(target,expected)/lengths,-1,1))

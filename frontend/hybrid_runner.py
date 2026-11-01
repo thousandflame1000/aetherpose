@@ -32,7 +32,7 @@ class HybridRunner:
         self._last_at=None;self._gp_valid=False;self._gp_signature=None;self._last_camera_at=None;self._last_calibrated_at=None
         self._tracking=None;self._tracking_options=dict(stabilize=True,constraints=True)
         self._input_ids=None;self._last_gp_translation=None
-        self.stats.update(joint_constraints=True,rotation_filter=True,constraint_profile='smpl_tpose',tracking_version='realtime-v1',heading_feedback_deg=0.,heading_feedback_active=False,camera_fused=False)
+        self.stats.update(joint_constraints=True,rotation_filter=True,constraint_profile='smpl_tpose',tracking_version='realtime-v2',heading_feedback_deg=0.,heading_feedback_active=False,camera_fused=False)
         threading.Thread(target=self._init,daemon=True,name='hybrid-init').start()
 
     def _init(self):

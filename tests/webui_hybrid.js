@@ -31,7 +31,7 @@
     assert(configureHybridTracking(),'live protection settings accepted');
     const protection=JSON.parse(meshWs.sent.at(-1));
     assert(protection.cmd==='configure_tracking'&&protection.stabilize===false&&protection.constraints===true,'protection settings reach the real runner protocol');
-    packet({runtime:{...runtime,rotation_filter:false,joint_constraints:true,heading_feedback_deg:2.5,camera_rejected_bones:2,tracking_version:'realtime-v1'}});
+    packet({runtime:{...runtime,rotation_filter:false,joint_constraints:true,heading_feedback_deg:2.5,camera_rejected_bones:2,tracking_version:'realtime-v2'}});
     assert(!$('hybrid-stabilize').checked&&$('hybrid-constraints').checked&&$('hybrid-protection').textContent.includes('2.5°'),'authoritative filter state and heading correction visible');
     const rootPose=a=>{const r=new THREE.Matrix4().makeRotationZ(a).elements,R=[];for(let j=0;j<24;j++)R.push(...(j?[1,0,0,0,1,0,0,0,1]:[r[0],r[4],r[8],r[1],r[5],r[9],r[2],r[6],r[10]]));return{rotations:R,translation:[0,0,0]};};
     const follow=createCausalPoseFollower();follow.push(rootPose(0));follow.push(rootPose(170*Math.PI/180));

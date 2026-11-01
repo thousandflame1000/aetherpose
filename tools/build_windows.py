@@ -5,7 +5,7 @@ from zipfile import ZipFile,ZIP_DEFLATED
 import importlib.metadata as metadata
 
 ROOT=Path(__file__).resolve().parents[1]
-VERSION='0.2.0-preview.1'
+VERSION='0.2.0-preview.2'
 
 def sha(path):return hashlib.sha256(path.read_bytes()).hexdigest()
 

@@ -21,7 +21,7 @@ if not getattr(sys,'frozen',False):
  sys.path[:0]=[str(Path(__file__).resolve().parents[1]),str(Path(__file__).resolve().parents[1]/'frontend')]
 import app_paths
 
-VERSION='0.2.0-preview.1'
+VERSION='0.2.0-preview.2'
 URL='http://127.0.0.1:18080/'
 
 def listening(port):

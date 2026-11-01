@@ -88,6 +88,39 @@ class KinematicFusion:
    local[hinge]=rotation(axis,sign*angle)@T
   return local
 
+ def camera_hinge(self,source,target,distal_orientation,reference,twist,hinge,distal,axis,sign,quality):
+  """Two observable ray coordinates, with a finite model prior on both DOFs.
+
+  Close to extension the twist Jacobian vanishes, so its prior is retained.
+  No camera bend-plane rotation is substituted for an IMU orientation.
+  """
+  twist_axis=(self.fusion.rest[distal]-self.fusion.rest[hinge]).copy();twist_axis[1]=0
+  twist_axis/=max(np.linalg.norm(twist_axis),1e-9)
+  q=quaternion(twist);tau=2*math.atan2(float(np.dot(q[:3],twist_axis)),q[3])
+  origin=np.array([reference,tau]);value=origin.copy();weight=3*quality
+  # Heavy-tailed image innovations: a confident monocular depth outlier must
+  # not receive an unbounded quadratic pull against calibrated inertial data.
+  scale2=float(np.sin(np.deg2rad(25))**2)
+  def evaluate(x,derivatives=False):
+   T=Rotation.from_rotvec(twist_axis*x[1]).as_matrix()
+   v=rotation(axis,-sign*x[0])@source;w=T.T@v;ray=distal_orientation@w
+   residual=ray-target
+   squared=float(np.dot(residual,residual))
+   cost=weight*scale2*math.log1p(squared/scale2)+float(np.sum((x-origin)**2))
+   if not derivatives:return cost,T
+   J=np.column_stack((-sign*distal_orientation@T.T@np.cross(np.eye(3)[axis],v),-distal_orientation@np.cross(twist_axis,w)))
+   return cost,T,residual,J,weight/(1+squared/scale2)
+  for _ in range(5):
+   cost,T,residual,J,precision=evaluate(value,True)
+   step=np.linalg.solve(precision*J.T@J+np.eye(2),precision*J.T@residual+value-origin)
+   if np.linalg.norm(step)<1e-5:break
+   improved=False
+   for scale in (1.,.5,.25):
+    trial=np.clip(value-scale*step,[0,-np.deg2rad(100)],[self.angles[-1],np.deg2rad(100)])
+    if evaluate(trial)[0]<cost:value=trial;improved=True;break
+   if not improved:break
+  return float(value[0]),evaluate(value)[1]
+
  def fit(self,previous,camera,sensors,axes,prior=None,dt=None):
   dt=1/self.fps if dt is None else dt
   # A single index point does not observe palm rotation. Keep unmeasured
@@ -97,17 +130,76 @@ class KinematicFusion:
   else:q=c=None
   axes={j:value for j,value in axes.items() if j not in sensors}
   R,self.observed=self.fusion.fit(previous,camera=camera,sensors=sensors,prior=prior,camera_axes=axes)
+  if prior is not None:
+   # The interpolated spine/clavicle points are not independent measurements
+   # of each vertebra's twist. Retain their model decomposition unless a
+   # real segment orientation observes that joint directly.
+   for j in (3,6,9,12,13,14):
+    if j not in sensors:
+     R[j]=prior[j];self.observed.discard(j)
   for j in self.bounds:R[j]=self.bounded(R[j],j)
   if 0 in sensors:R[0]=sensors[0]
   for j in (3,6,9,12,13,14):
    R[j]=limited(R[j],previous[j],np.deg2rad(300)*dt)
    R[j]=self.bounded(R[j],j)
   G=global_rotations(R,self.parents)
+  if prior is not None:
+   # Rebase additional measured torso segments after retaining their parents'
+   # model decomposition. The default six sensors do not include these joints.
+   for j in (3,6,9,12,13,14):
+    if j in sensors:
+     R[j]=G[self.parents[j]].T@sensors[j]
+     G=global_rotations(R,self.parents)
   for proximal,hinge,distal,axis,sign in self.CHAINS:
    relative=(sensors[proximal].T@sensors[hinge]) if proximal in sensors and hinge in sensors else (prior[hinge] if prior is not None else R[hinge])
    T=self.twist(relative,hinge,distal)
    old=np.clip(hinge_angle(previous[hinge]@self.twist(previous[hinge],hinge,distal).T,axis,sign),0,self.angles[-1])
    cap=np.deg2rad(160)*dt
+   if prior is not None and hinge in sensors:
+    # Preserve the unobservable axial component of the model hypothesis.
+    # Fit the observable hinge angle against a calibrated distal orientation
+    # and a camera bone ray, rather than rebuilding twist from monocular depth.
+    reference=float(np.clip(hinge_angle(prior[hinge]@T.T,axis,sign),0,self.angles[-1]))
+    desired=reference
+    if q is not None and min(c[proximal],c[hinge])>=.8 and proximal not in sensors:
+     source=self.fusion.rest[hinge]-self.fusion.rest[proximal]
+     target=q[hinge]-q[proximal]
+     lengths=np.linalg.norm(source)*np.linalg.norm(target)
+     quality=0.
+     if lengths>1e-6:
+      source=source/max(np.linalg.norm(source),1e-9);target=target/max(np.linalg.norm(target),1e-9)
+      quality=float(min(c[proximal],c[hinge]))
+      # A distal ray provides an independent consistency check for image depth.
+      if c[distal]>=.8:
+       b=q[distal]-q[hinge];sb=self.fusion.rest[distal]-self.fusion.rest[hinge]
+       predicted=sensors[hinge]@sb
+       cosine=np.dot(b,predicted)/max(np.linalg.norm(b)*np.linalg.norm(predicted),1e-9)
+       mismatch=math.acos(float(np.clip(cosine,-1,1)))
+       quality*=max(0.,1-(mismatch/np.deg2rad(35))**2)
+      else:quality*=.25
+      if hinge in (18,19) and quality>0:
+       desired,T=self.camera_hinge(source,target,sensors[hinge],reference,T,hinge,distal,axis,sign,quality)
+      else:
+       F=sensors[hinge]@T.T
+       rays=np.einsum('nij,j->ni',self.hinges[(axis,sign)].transpose(0,2,1),source)@F.T
+       scale2=float(np.sin(np.deg2rad(25))**2)
+       cost=3*quality*scale2*np.log1p(np.sum((rays-target)**2,axis=1)/scale2)+(self.angles-reference)**2
+       desired=float(self.angles[np.argmin(cost)])
+    angle=float(np.clip(desired,max(0,old-cap),min(self.angles[-1],old+cap)))
+    H=rotation(axis,sign*angle)
+    U=sensors[proximal] if proximal in sensors else sensors[hinge]@T.T@H.T
+    if proximal in sensors:
+     angle=float(np.clip(hinge_angle(U.T@sensors[hinge]@T.T,axis,sign),max(0,old-cap),min(self.angles[-1],old+cap)))
+     H=rotation(axis,sign*angle)
+    parent=self.parents[proximal]
+    R[proximal]=(G[parent].T if parent>=0 else np.eye(3))@U
+    R[hinge]=H@T
+    G=global_rotations(R,self.parents)
+    if distal in sensors:R[distal]=self.bounded(G[self.parents[distal]].T@sensors[distal],distal)
+    elif distal in (20,21):R[distal]=self.bounded(prior[distal],distal)
+    else:R[distal]=self.bounded(R[distal],distal)
+    G=global_rotations(R,self.parents)
+    continue
    geometry=None
    if self.allow_twist and q is not None and min(c[proximal],c[hinge],c[distal])>=.8 and proximal not in sensors:
     a=q[hinge]-q[proximal];b=q[distal]-q[hinge]
