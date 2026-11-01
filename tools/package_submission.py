@@ -13,13 +13,14 @@ MANIFEST = 'SUBMISSION_MANIFEST.json'
 NOTES = 'PACKAGE_NOTES.md'
 ROOT_FILES = {'.gitignore', 'Cargo.toml', 'Cargo.lock', 'README.md', 'HANDOFF.md',
               'EXTERNAL_DEPENDENCIES.md', 'external_paths.example.json',
-              'setup.ps1', 'run.ps1', 'stop.ps1'}
+              'setup.ps1', 'run.ps1', 'stop.ps1', 'Start-AetherPose.cmd'}
 EXTENSIONS = {
     'src': {'.rs', '.ino', '.c', '.h', '.cpp', '.md', '.txt'},
     'frontend': {'.py', '.txt'},
     'tools': {'.py', '.md'},
     'tests': {'.py', '.rs', '.cjs', '.js', '.ps1', '.cpp'},
     'docs': {'.md'},
+    'packaging': {'.py', '.txt', '.md'},
     'webui': {'.html', '.css', '.js', '.py', '.ps1', '.md', '.json', '.txt'},
 }
 STATIC_FILES = {'docs/aetherpose.png', 'docs/combat-results.png',
@@ -27,6 +28,9 @@ STATIC_FILES = {'docs/aetherpose.png', 'docs/combat-results.png',
     f'webui/assets/props/{name}.glb' for name in
     ('balance_pad', 'bench', 'dumbbell', 'gym_ball', 'hurdle', 'kettlebell',
      'plyo_box', 'potted_plant', 'standing_bag', 'training_cone')}
+STATIC_FILES |= {f'docs/{name}.json' for name in (
+    'aetherpose-realtime-replay','aetherpose-realtime-service','aetherpose-realtime-runtime',
+    'aetherpose-realtime-baseline-runtime','aetherpose-globalpose-game-closed','aetherpose-game-closed-comparison')}
 REQUIRED = ROOT_FILES | {'src/main.rs', 'frontend/mesh_bridge.py', 'frontend/external_paths.py',
                          'frontend/requirements.txt', 'frontend/requirements_freeze.txt',
                          'webui/index.html', 'webui/server.py', 'webui/services.ps1',
@@ -78,6 +82,8 @@ def allowed(name):
     if not safe_relative(name):
         return False
     if name in ROOT_FILES or name in STATIC_FILES or name in {NOTES, 'webui/vendor/three/LICENSE'}:
+        return True
+    if name == 'packaging/windows-release.yml.template':
         return True
     parts = PurePosixPath(name).parts
     if len(parts) < 2 or parts[0] not in EXTENSIONS:

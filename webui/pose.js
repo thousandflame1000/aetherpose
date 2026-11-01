@@ -55,6 +55,7 @@ function tpStatusDisplay(status) {
 let meshWs = null;
 let lastJointVersion = null;
 let bridgeStatus = '';
+let pendingBodyCalibration=false;
 let lastDroppedInputFrames = null, inputOverloadUntil = 0;
 function connectMeshBridge() {
   meshWs = new WebSocket(MESH_WS_URL);
@@ -62,13 +63,20 @@ function connectMeshBridge() {
     lastDroppedInputFrames=null; inputOverloadUntil=0;
     AetherCombat.onMeshOpen();
     reportPageVisibility();
+    if(pendingBodyCalibration){pendingBodyCalibration=false;sendToBridge({cmd:'calibrate_body'});}
   };
   meshWs.onmessage = (e) => {
     try {
       const m = JSON.parse(e.data);
+      if(m.position_anchor)renderCameraAnchor(m.position_anchor);
+      if(m.runtime?.model)renderHybridRuntime(m.runtime);
+      if(m.hybrid_notice)document.getElementById('hybrid-status').textContent=m.hybrid_notice;
+      if(m.camera_preview&&cameraAnchorState?.enabled) {
+        const preview=document.getElementById(cameraAnchorState.pose_only?'hybrid-preview':'anchor-preview');
+        preview.src='data:image/jpeg;base64,'+m.camera_preview;preview.hidden=false;
+      }
+      if(m.camera_error){renderHybridCameraControls(cameraAnchorState||{enabled:false});document.getElementById('hybrid-status').textContent=m.camera_error;cameraAnchorError=m.camera_error;document.getElementById('anchor-notice').textContent=m.camera_error;}
       if (m.status) {
-        if (aetherCalibrationIssue(m.status) && game.state==='playing')
-          endGame('Body calibration required. Round stopped.');
         if (game.state === 'playing') trackPoseSource(aetherPoseSource(m.status));
         if (aetherPoseSource(bridgeStatus).signature !== aetherPoseSource(m.status).signature) scenePhysics.reset(avatar.root);
         if (aetherPoseSource(m.status).kind === 'error' && aetherPoseSource(bridgeStatus).kind !== 'error')
@@ -92,8 +100,8 @@ function connectMeshBridge() {
         const overloaded=performance.now()<inputOverloadUntil;
         // Players get the warning in words; the debug overlay keeps the timings.
         performance_.textContent=overloaded && !document.body.classList.contains('debug-view') ?
-          '姿態推論跟不上，部分動作更新已略過。' : slow && !document.body.classList.contains('debug-view') ?
-          `姿態更新偏慢：每秒 ${m.runtime.pose_fps.toFixed(1)} 個姿態` :
+          '動作更新不穩定' : slow && !document.body.classList.contains('debug-view') ?
+          '動作更新較慢' :
           `${m.runtime.device.toUpperCase()} · 每秒 ${m.runtime.pose_fps.toFixed(1)} 個姿態 · 姿態 ${m.runtime.frame_ms.toFixed(1)} ms`;
         // Games judge holds and fast moves from successive poses: say when they come too slowly.
         performance_.style.color=slow||overloaded?'var(--amber)':''; performance_.classList.toggle('slow',slow||overloaded);
@@ -108,6 +116,7 @@ function connectMeshBridge() {
         if (accepted) {
           lastJointVersion = m.joints_version;
           if (m.pose && AetherCombat.onPose(m.pose)) finishBootSplash();
+          acceptPoseGameSample();
           if (!combatMode) updateGame(avatar.joints);
         }
       }
@@ -115,6 +124,7 @@ function connectMeshBridge() {
     } catch (err) { console.warn('mesh_bridge packet failed', err); }
   };
   meshWs.onclose = () => {
+    if(cameraAnchorState?.enabled)renderCameraAnchor({...cameraAnchorState,state:'lost',can_score:false,message:'姿態服務已斷線，保持末位置。'});
     lastJointVersion = null;
     document.getElementById('pose-performance').textContent='';
     AetherCombat.onMeshClose();
@@ -123,7 +133,7 @@ function connectMeshBridge() {
     status.title = '姿態服務（mesh_bridge，連接埠 9010）沒有回應，每 2 秒重試。請用 run.ps1 啟動服務；錯誤記錄在 logs/mesh_bridge.err.log。';
     // The last status no longer describes anything: forget it until the service is back.
     bridgeStatus = ''; renderSetupSteps();
-    if (game.state === 'playing') endGame('Pose disconnected');
+    refreshPoseContinuity();
     setTimeout(connectMeshBridge, 2000);
   };
   meshWs.onerror = () => meshWs.close();
@@ -139,39 +149,95 @@ AetherCombat.setSender(sendToBridge);
 
 // ── Body calibration (mesh_bridge maps live trackers into the body frame) ──
 let bodyCalibrationPhase = 'idle';
+let cameraAnchorState=null,cameraAnchorAt=-Infinity,cameraAnchorError='';
+function stopForPositionChange() {
+  resetPoseGesture(true);
+  AetherCombat.rebaseMotion(true);
+}
+function cameraAnchorCommand(action) {
+  if(!meshWs||meshWs.readyState!==WebSocket.OPEN) {
+    document.getElementById('anchor-notice').textContent='姿態服務未連線。';return false;
+  }
+  const message={cmd:'camera_anchor',action};
+  if(action==='start') {
+    message.index=Number(document.getElementById('anchor-camera-index').value);
+    message.marker_m=Number(document.getElementById('anchor-marker-size').value);
+    if(!Number.isInteger(message.index)||message.index<0||message.index>9||!Number.isFinite(message.marker_m)||message.marker_m<.03||message.marker_m>.5){
+      document.getElementById('anchor-notice').textContent='請填有效相機編號與標記尺寸。';return false;
+    }
+  }
+  if(['start','stop','reference','align'].includes(action))stopForPositionChange();
+  cameraAnchorError='';
+  return sendToBridge(message);
+}
+window.aetherPositionIssue=()=>cameraAnchorState?.enabled&&!cameraAnchorState.pose_only&&(!cameraAnchorState.can_score||performance.now()-cameraAnchorAt>500)?'相機位置尚未就緒，請讓標記可見並記錄位置原點。':null;
+window.aetherCameraEnabled=()=>Boolean(cameraAnchorState?.enabled&&!cameraAnchorState.pose_only);
+function renderCameraAnchor(state) {
+  if(!state||typeof state.enabled!=='boolean')return;
+  renderHybridCameraControls(state);
+  const old=cameraAnchorState;
+  if(state.pose_only){
+    if(old&&!old.pose_only)avatar.setCameraPosition(null);
+    cameraAnchorState={...state};cameraAnchorAt=performance.now();
+    document.getElementById('hybrid-status').textContent=(state.message||state.state)+
+      (Number.isFinite(state.tracking_fps)&&state.tracking_fps>0?` · ${state.tracking_fps.toFixed(1)} FPS`:'');
+    return;
+  }
+  if(old?.pose_only&&!state.enabled){
+    const preview=document.getElementById('hybrid-preview');preview.hidden=true;preview.removeAttribute('src');
+    document.getElementById('hybrid-status').textContent='影像骨架已停止。';
+  }
+  const valid=Array.isArray(state.position)&&state.position.length===3&&state.position.every(Number.isFinite);
+  if(state.enabled&&state.aligned&&!valid)return;
+  if(old&&(old.enabled!==state.enabled||old.epoch!==state.epoch))stopForPositionChange();
+  cameraAnchorState={...state};cameraAnchorAt=performance.now();
+  document.getElementById('anchor-status').textContent=state.message||state.state;
+  document.getElementById('anchor-notice').textContent=cameraAnchorError||state.notice||'';
+  document.getElementById('anchor-start').disabled=state.enabled&&state.state!=='error';
+  if(!state.enabled){const preview=document.getElementById('anchor-preview');preview.hidden=true;preview.removeAttribute('src');avatar.setCameraPosition(null);}
+  else if(valid&&state.aligned)avatar.setCameraPosition(state.position);
+  else if(!old?.enabled)avatar.setCameraPosition([0,0,0]);
+}
+function tickCameraAnchor() {
+  if(cameraAnchorState?.enabled&&cameraAnchorState.can_score&&performance.now()-cameraAnchorAt>500) {
+    cameraAnchorState.can_score=false;
+    document.getElementById('anchor-status').textContent='相機位置訊息中斷，保持末位置。';
+  }
+}
 const bodyCalibrationActive = phase => ['requested','tpose_ready','tpose','bow_ready','bow'].includes(phase);
 function startBodyCalibration() {
   if (meshWs?.readyState !== WebSocket.OPEN) {
-    document.getElementById('body-cal-status').textContent = '姿態服務沒有連線。';
-    return false;
+    pendingBodyCalibration=true;
+    renderBodyCalibration({phase:'requested',message:'等待連線，連上後自動校正。',seconds_left:0});
+    return true;
   }
-  // The T-pose and bow would be scored, and the new calibration moves the pose mid-round.
-  if (game.state === 'playing') endGame('Body calibration. Round stopped.');
-  AetherCombat.stopRound('Body calibration. Round stopped.');
   const sent=sendToBridge({cmd:'calibrate_body'});
   if (sent) renderBodyCalibration({phase:'requested',message:'已送出校正要求，等待姿態服務回應。',seconds_left:0});
   return sent;
 }
-function cancelBodyCalibration() { sendToBridge({cmd:'cancel_body_calibration'}); }
+function cancelBodyCalibration() {
+  if(pendingBodyCalibration){pendingBodyCalibration=false;renderBodyCalibration({phase:'idle',message:'已取消校正。',seconds_left:0});}
+  else sendToBridge({cmd:'cancel_body_calibration'});
+}
 function renderBodyCalibration(state) {
   if (!state || typeof state.phase !== 'string') return;
   AetherCombat.onCalibration(state);
-  // Commands from another page/client must stop scoring too.
-  if (bodyCalibrationActive(state.phase) && game.state==='playing')
-    endGame('Body calibration. Round stopped.');
   // The T-pose hold just ended: reset the backend IK mounting from the same pose.
   if (bodyCalibrationPhase === 'tpose' && state.phase === 'bow_ready') cmd('ResetMounting');
+  const wasActive=bodyCalibrationActive(bodyCalibrationPhase);
   bodyCalibrationPhase = state.phase;
+  if(wasActive&&!bodyCalibrationActive(state.phase))resetPoseGesture(true);
+  refreshPoseContinuity();
   const active = bodyCalibrationActive(state.phase), status = document.getElementById('body-cal-status');
   const torsoLive = liveTrackers().some(t => t.assigned_bone === 2 || t.assigned_bone === 4);
   const start = document.getElementById('body-cal-start');
-  start.disabled = active || !torsoLive;
-  start.title = torsoLive ? '' : '需要一顆已連線、指派到胸口或頭部的追蹤器。';
+  start.disabled = active;
+  start.title = torsoLive ? '' : '可用手臂追蹤器校正；鞠躬時手臂需與軀幹一起轉動。';
   document.getElementById('body-cal-cancel').disabled = !active;
   let text = String(state.message || '');
   if (active && state.seconds_left > 0) text += ' ' + Math.ceil(state.seconds_left) + ' s';
   if (state.phase === 'idle' && bridgeStatus.includes('uncalibrated')) text = '即時追蹤器尚未校正：按「校正身體」之前，人體姿態不正確。';
-  if (state.phase === 'idle' && !torsoLive) text = '請連上追蹤器，並把其中一顆指派到胸口或頭部，才能校正。';
+  if (state.phase === 'idle' && !torsoLive) text = '可直接校正。只有手臂追蹤器時，保持 T-pose 並隨軀幹一起鞠躬；不需改指派成胸口。';
   status.textContent = text;
   status.style.color = state.phase === 'failed' || text.startsWith('即時追蹤器尚未校正') ? 'var(--amber)' : state.phase === 'done' ? 'var(--green)' : '';
 }

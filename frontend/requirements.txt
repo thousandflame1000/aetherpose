@@ -2,8 +2,10 @@
 # setup.ps1 installs these together with the pinned versions in requirements_freeze.txt.
 --extra-index-url https://download.pytorch.org/whl/cpu
 numpy
+mediapipe==0.10.32  # local vision skeleton
 scipy
 torch
 websockets
 pyserial   # tools/calibrate_tracker.py boot-log check
 bleak      # tools/imu_axes.py and calibrate_tracker.py direct BLE mode
+opencv-contrib-python==4.13.0.92  # opt-in camera anchor, ArUco and lens calibration

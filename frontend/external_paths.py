@@ -19,10 +19,11 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+import app_paths
 
-PROJECT_DIR = Path(__file__).resolve().parents[1]
-CONFIG_FILE = PROJECT_DIR / 'external_paths.json'
-DEFAULT_DIR = PROJECT_DIR / 'external'
+PROJECT_DIR = app_paths.project_dir()
+CONFIG_FILE = app_paths.data_dir() / 'external_paths.json'
+DEFAULT_DIR = app_paths.data_dir() / 'external'
 
 
 @dataclass(frozen=True)
@@ -88,7 +89,22 @@ def missing(paths, required_only=True):
 
 
 def main():
+    import argparse
+    parser=argparse.ArgumentParser()
+    parser.add_argument('--legacy',action='store_true',help='Check all legacy TransPose assets')
+    args=parser.parse_args()
     paths, problems = resolve()
+    if not args.legacy:
+        smpl=paths['smpl_npz']
+        vision=Path(os.environ.get('AETHER_VISION_MODEL',str(app_paths.asset_dir()/'external/vision/pose_landmarker_full.task')))
+        print(('ok SMPL mesh: '+str(smpl)) if smpl.is_file() else 'optional SMPL absent: using procedural mannequin')
+        required=[('Vision pose model',vision)]
+        for label,path in required:print(('ok' if path.is_file() else 'MISSING')+' '+label+': '+str(path))
+        from globalpose_client import runtime_paths
+        source,python=runtime_paths()
+        ready=python.is_file() and all((source/name).is_file() for name in ('net.py','data/weights.pt','models/SMPL_male.pkl'))
+        print(('ok' if ready else 'optional / not installed')+' GlobalPose (six designated IMUs only)')
+        return 0 if all(path.is_file() for _,path in required) else 1
     for problem in problems:
         print(f'warning: {problem}')
     lacking = {item.key for item in missing(paths, required_only=False)}

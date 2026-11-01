@@ -292,6 +292,19 @@ body.combat-mode #combat-view { display: block; }
 #combat-view button { pointer-events: auto; }
 #combat-view button:disabled { opacity: .45; cursor: not-allowed; }
 #combat-view button.primary:disabled { filter: saturate(.2); }
-body.combat-mode #hud { display: none; }
+body.combat-mode #hud { z-index:6; }
+body.combat-mode #game-stats, body.combat-mode #game-btn,
+body.combat-mode #game-stop, body.combat-mode #game-pause { display:none !important; }
+body.combat-mode #pose-game-cue, body.combat-mode #pose-ready,
+body.combat-mode #pose-cue-progress { display:none; }
+body.combat-mode #combat-view .hud { top:78px; grid-template-columns:1fr; gap:8px; }
+body.combat-mode #combat-view .title { display:none; }
+body.combat-mode #combat-view .scoreboard { grid-row:auto; grid-column:auto; width:min(100%,600px); }
+body.combat-mode #combat-view .left-stack, body.combat-mode #combat-view .right-stack { top:184px; width:min(220px,25cqw); }
+#start-btn[hidden], #combat-stop[hidden] { display:none !important; }
+@container (max-width:650px) {
+  body.combat-mode #combat-view .hud { top:76px; }
+  body.combat-mode #combat-view .right-stack { top:auto; }
+}
 #page-combat .hint { color: var(--text-dim); }
 #combat-view .dot.on.demo { background: var(--amber); box-shadow: 0 0 0 3px rgba(245,189,72,.18); }

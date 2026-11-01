@@ -8,6 +8,8 @@ import threading
 import types
 import unittest
 from unittest.mock import patch
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'frontend'))
+import camera_anchor  # import numpy once, outside patch.dict's module rollback
 
 
 class Data:
@@ -27,6 +29,7 @@ class Model:
         stats = getattr(self, 'get_runtime_stats', lambda: None)()
         return pose, current, self.status, stats
     def reset_origin(self): self.reset = True
+    def push_camera(self,*args): pass
 
 
 class Client:
@@ -39,19 +42,66 @@ class Client:
 
 
 def load_bridge():
-    model = types.ModuleType('transpose_runner'); model.TransPoseRunner = Model
+    model = types.ModuleType('hybrid_runner'); model.HybridRunner = Model
     ws = types.ModuleType('ws_client'); ws.WsClient = lambda url: None
     websockets = types.ModuleType('websockets')
     websockets.exceptions = types.SimpleNamespace(ConnectionClosed=ConnectionError)
     path = Path(__file__).resolve().parents[1] / 'frontend/mesh_bridge.py'
     spec = importlib.util.spec_from_file_location('aether_bridge_test', path)
     bridge = importlib.util.module_from_spec(spec)
-    with patch.dict(sys.modules, transpose_runner=model, ws_client=ws, websockets=websockets):
+    with patch.dict(sys.modules, hybrid_runner=model, ws_client=ws, websockets=websockets):
         spec.loader.exec_module(bridge)
     return bridge
 
 
 class ProtocolTests(unittest.IsolatedAsyncioTestCase):
+    async def test_live_tracking_options_reach_runner_and_return_authoritative_state(self):
+        bridge=load_bridge();calls=[]
+        def configure(**options):
+            if any(type(v) is not bool for v in options.values()):raise ValueError('invalid option')
+            calls.append(options);return options
+        bridge.tp.configure_tracking=configure
+        bridge.tp.get_runtime_stats=lambda:{'model':'hybrid','rotation_filter':False,'joint_constraints':True}
+        client=Client([json.dumps({'cmd':'configure_tracking','stabilize':False,'constraints':True}),json.dumps({'cmd':'configure_tracking','stabilize':'no','constraints':True})])
+        await bridge._handler(client)
+        self.assertEqual(calls,[dict(stabilize=False,constraints=True)])
+        packets=[json.loads(value) for value in client.sent]
+        self.assertEqual(packets[-2]['tracking_options'],calls[0])
+        self.assertFalse(packets[-2]['runtime']['rotation_filter'])
+        self.assertIn('invalid option',packets[-1]['hybrid_notice'])
+
+    async def test_camera_positions_broadcast_without_any_new_model_pose(self):
+        bridge=load_bridge()
+        class Anchor:
+            def snapshot(self):return {'enabled':True,'state':'tracking','position':[.2,0,-.3]}
+            def preview(self,_):return 1,None
+        bridge.camera_anchor=Anchor()
+        client=Client();bridge.CLIENTS.add(client)
+        calls=0
+        async def sleep(_):
+            nonlocal calls
+            calls+=1
+            if calls>1:raise asyncio.CancelledError()
+        bridge.asyncio=types.SimpleNamespace(sleep=sleep,wait_for=asyncio.wait_for,gather=asyncio.gather)
+        with self.assertRaises(asyncio.CancelledError):await bridge._camera_broadcaster()
+        payload=json.loads(client.sent[0])
+        self.assertEqual(payload['position_anchor']['position'],[.2,0,-.3])
+        self.assertNotIn('joints',payload)
+
+    async def test_camera_controls_are_forwarded_and_errors_are_reported(self):
+        bridge=load_bridge()
+        actions=[]
+        class Anchor:
+            def snapshot(self):return {'enabled':False}
+            def command(self,message):
+                actions.append(message['action'])
+                if message['action']=='bad':raise ValueError('invalid action')
+        bridge.camera_anchor=Anchor()
+        client=Client([json.dumps({'cmd':'camera_anchor','action':'sample'}),json.dumps({'cmd':'camera_anchor','action':'bad'})])
+        await bridge._handler(client)
+        self.assertEqual(actions,['sample','bad'])
+        self.assertEqual(json.loads(client.sent[-1])['camera_error'],'invalid action')
+
     async def test_handshake_and_broadcast_use_one_consistent_frame_capture(self):
         bridge=load_bridge()
         class AtomicModel(Model):

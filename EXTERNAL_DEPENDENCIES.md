@@ -1,5 +1,15 @@
 # 外部方法、資料與授權說明
 
+## 2026-10 Hybrid 架構更新
+
+預設服務已改為本專案的可變數量 IMU／影像骨架旋轉擬合，以及符合六個指定位置時的選用 GlobalPose。下方 TransPose 的固定六槽與資料補槽內容為歷史流程；新版不把補槽資料當作即時動作。
+
+- [GlobalPose 官方原始碼與模型](https://github.com/Xinyu-Yi/GlobalPose)：GPNet、原生 carticulate 物理求解器與預訓練權重均屬外部成果。存於忽略的 `external/`，來源版本及執行適配見 `docs/hybrid-runtime.md`，不可宣稱是本專案自行訓練的新模型。
+- [MediaPipe Pose Landmarker](https://developers.google.com/edge/mediapipe/solutions/vision/pose_landmarker)：提供影像人體點、可見度與存在度。本機使用官方 Lite task 模型；套件與模型是外部依賴，沒有改稱為原創辨識模型。
+- 本專案新增的 Wahba 旋轉擬合與動態觀測集合是工程融合基線；參考研究與限制見 `docs/hybrid-runtime.md`。沒有宣稱復現 RobustCap、DiffCap、RTOF、DiffusionPoser 或 IMUCoCo。
+- SMPL 與既有資料授權保持原要求。模型、權重及使用者個人設定不放進原始碼提交包。
+
+
 本專題定位為「工程整合型專題」。系統目標是把六顆實體 IMU、BLE 通訊、Rust 後端、Python 前端與既有姿態重建方法串成可展示的端到端流程；不主張提出新的深度學習模型，也不主張 TransPose、Madgwick、DIP-IMU 或人體模型檔為本專題原創。
 
 ## 必須揭露的外部項目

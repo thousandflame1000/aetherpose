@@ -25,7 +25,9 @@
 // offset drags the heading the wrong way, while gyro-only yaw merely drifts.
 struct MagCalibration { uint8_t id; float offset_ut[3]; float scale[3]; };
 const MagCalibration MAG_CALIBRATIONS[] = {
-  {43, {25.70f, 22.09f, 10.04f}, {0.9158f, 1.1117f, 0.9915f}},  // D4:3F:A8:D9:D3:2B, 2026-09-28
+  {31, {48.61f, -0.34f, -0.36f}, {1.0288f, 0.9858f, 0.9866f}},  // 2026-10-18, tools/calibrate_tracker.py, field 22.8 uT
+  {43, {9.39f, -30.16f, -24.21f}, {0.9843f, 1.0216f, 0.9949f}},  // 2026-10-18, tools/calibrate_tracker.py, field 24.0 uT
+  {69, {23.46f, -14.31f, -66.18f}, {0.9677f, 0.9942f, 1.0408f}},  // 2026-10-18, tools/calibrate_tracker.py, field 24.8 uT
 };
 const MagCalibration* mag_cal = nullptr;  // set in setup() once the ID is known
 float gyro_bias_dps[3] = {0.0f, 0.0f, 0.0f};

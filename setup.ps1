@@ -58,7 +58,7 @@ if (Test-Path $python) {
     if ($LASTEXITCODE -eq 0) {
         Write-Host "[2/4] 外部檔案齊全" -ForegroundColor Green
     } else {
-        $warnings += "缺少 TransPose／SMPL 檔案：網頁會顯示「推論錯誤」。在 external_paths.json 填好路徑後執行 python frontend\external_paths.py 確認。"
+        $warnings += "缺少 Hybrid 的 SMPL 或影像模型：在 external_paths.json 填好 SMPL 路徑，並執行 tools/setup_hybrid.ps1 安裝影像與 GlobalPose。"
         Write-Host "[2/4] 缺少必要的外部檔案（見上方 MISSING）" -ForegroundColor Red
     }
 } else {

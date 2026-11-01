@@ -64,8 +64,8 @@ function finishCombatRound(entry) {
     saveBestScore('combat',entry.source,entry.score);
     if (separateDifficulty) saveCombatDifficultyBest(entry.difficulty,entry.source,entry.score);
   }
-  sceneEnvironment.setScoreboard({title:'AETHER COMBAT',value:String(entry.score),sub:entry.completed?'完成':'中斷'});
-  showRoundResult({title:'Aether Combat',score:entry.score,sourceLabel:sourceLabelOf(entry.source)+(separateDifficulty?` · ${{easy:'練習',normal:'標準',hard:'挑戰'}[entry.difficulty]}`:''),reason:entry.reason,
+  sceneEnvironment.setScoreboard({title:'機器人對戰',value:String(entry.score),sub:entry.completed?'完成':'中斷'});
+  showRoundResult({title:'機器人對戰',score:entry.score,sourceLabel:sourceLabelOf(entry.source)+(separateDifficulty?` · ${{easy:'練習',normal:'標準',hard:'挑戰'}[entry.difficulty]}`:''),reason:entry.reason,
     details,practiceMode:stats?aetherCombatDrill(stats,normalized.combatBreakdown):null,
     exportRound:()=>exportSingleRound(normalized),
     completed:entry.completed,best:entry.completed?(separateDifficulty?combatDifficultyBest(entry.difficulty,entry.source):poseRecords[`combat:${entry.source}`]||0):null,
@@ -73,7 +73,8 @@ function finishCombatRound(entry) {
 }
 const scenePhysics=createAetherPhysics(scene);
 function sceneWorldChanged() {
-  if (game.state==='playing') endGame('Scene changed. Round stopped.');
+  resetPoseGesture();
+  targetMeshes.forEach(target=>{target.userData.available=false;target.visible=false;});
   AetherCombat.onSceneChanged();
 }
 function setSceneCollisions(enabled) {
@@ -194,13 +195,17 @@ function warnSoftwareRendering() {
 // by itself; until then the picture is frozen, so say so and end a round the player cannot see.
 let contextLostTimer=null;
 canvas.addEventListener('webglcontextlost',()=>{
-  if (game.state==='playing') endGame('Display lost');
-  AetherCombat.stopRound('Display lost. Round stopped.');
+  window.aetherDisplayLost=true;
+  refreshPoseContinuity();AetherCombat.refreshAvailability();
   showPanelNotice('3D 畫面中斷（顯示卡重設），正在恢復…',60);
   clearTimeout(contextLostTimer);
   contextLostTimer=setTimeout(()=>showPanelNotice('3D 畫面沒有恢復，請重新整理頁面。',600),8000);
 });
-canvas.addEventListener('webglcontextrestored',()=>{ clearTimeout(contextLostTimer); showPanelNotice('3D 畫面已恢復。',4); });
+canvas.addEventListener('webglcontextrestored',()=>{
+  window.aetherDisplayLost=false;
+  refreshPoseContinuity();AetherCombat.refreshAvailability();
+  clearTimeout(contextLostTimer);showPanelNotice('3D 畫面已恢復，繼續本回合。',4);
+});
 
 // One animation loop renders both modes in the shared scene.
 let combatMode = false;
@@ -340,8 +345,11 @@ function animate() {
   }
   refreshTrackers(t);
   updateReachClock(t * 1000);
+  tickPoseCircuit(t * 1000);
+  tickReactionPractice(t * 1000);
+  tickBodyReplay(t * 1000);
+  tickCameraAnchor();
   updateReachEffects(t);
-  if (game.state === 'playing' && !avatar.fresh(t)) endGame('Pose data expired');
   lastFrameAt = t;
   AetherCombat.tick(t);
   if (!combatMode) followAvatar(dt);

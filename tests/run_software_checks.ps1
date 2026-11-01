@@ -1,4 +1,4 @@
-# Complete software verification; no physical trackers required.
+﻿# Complete software verification; no physical trackers required.
 param([switch]$Live)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
@@ -17,8 +17,15 @@ try {
         Invoke-Check 'page script syntax' { foreach ($script in Get-ChildItem webui\*.js) { node --check $script.FullName; if ($LASTEXITCODE -ne 0) { break } } }
     }
     Invoke-Check 'browser' { & $python tests/test_webui_browser.py }
+    Invoke-Check 'hybrid browser controls' { & $python tests/test_webui_browser.py --suite webui_hybrid.js }
+    Invoke-Check 'round continuity' { & $python tests/test_webui_browser.py --suite webui_continuity.js }
     Invoke-Check 'compact browser' { & $python tests/test_webui_browser.py --size 1000,760 }
+    Invoke-Check 'vision confidence and smoothing' { & $python tests/test_vision_filter.py }
+    Invoke-Check 'GlobalPose dynamics clock' { & $python tests/test_globalpose_rates.py }
+    Invoke-Check 'GlobalPose input queue and freshness' { & $python tests/test_globalpose_client.py }
+    Invoke-Check 'hybrid variable sensor fusion' { & $python tests/test_hybrid_fusion.py }
     Invoke-Check 'mesh protocol' { & $python tests/test_mesh_bridge_protocol.py }
+    Invoke-Check 'camera position and marker geometry' { & $python tests/test_camera_position.py }
     Invoke-Check 'pose inference' { & $python tests/test_transpose_mesh.py }
     Invoke-Check 'CPU latency policy' { & $python tests/test_cpu_latency.py }
     Invoke-Check 'page skinning' { & $python tests/test_page_skinning.py }
@@ -37,6 +44,7 @@ try {
     Invoke-Check 'IMU axes page' { & $python tests/test_imu_axes_page.py }
     Invoke-Check 'page server' { & $python tests/test_page_server.py }
     if (Get-Command node -ErrorAction SilentlyContinue) {
+        Invoke-Check 'body game rules' { node tests/body_games_rules.cjs }
         Invoke-Check 'IMU axes page math' { node tests/imu_axes_math_test.cjs }
     } else { Write-Host 'Skipping IMU axes page math (Node.js not installed)' }
     Invoke-Check 'service identity' { powershell -NoProfile -File tests/test_service_identity.ps1 }

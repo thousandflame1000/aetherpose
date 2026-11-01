@@ -1,0 +1,21 @@
+{
+  "checked_date": "2026-10-18",
+  "assets": [
+    {
+      "asset": "RobotExpressive",
+      "path": "webui/assets/robot/RobotExpressive.glb",
+      "url": "https://raw.githubusercontent.com/mrdoob/three.js/r128/examples/models/gltf/RobotExpressive/RobotExpressive.glb",
+      "local_sha256": "047f5e5fb3bb6d378bd1df16ca6137f2a596c99b3a1b5690b4020c05aaf6f319",
+      "upstream_sha256": "047f5e5fb3bb6d378bd1df16ca6137f2a596c99b3a1b5690b4020c05aaf6f319",
+      "matches": true
+    },
+    {
+      "asset": "Lantern",
+      "path": "webui/assets/lantern/Lantern.glb",
+      "url": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/Lantern/glTF-Binary/Lantern.glb",
+      "local_sha256": "a79458c4b02d695187a952f23a63b8bf278e7bc3d316a3c2a314f2d6974181f1",
+      "upstream_sha256": "a79458c4b02d695187a952f23a63b8bf278e7bc3d316a3c2a314f2d6974181f1",
+      "matches": true
+    }
+  ]
+}

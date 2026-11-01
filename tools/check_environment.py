@@ -66,7 +66,12 @@ def inspect(strict=False):
     for item in external_paths.ITEMS:
         path = paths[item.key] / item.marker if item.marker else paths[item.key]
         add('external:' + item.key, path.is_file() if item.marker or item.key != 'dip_root' else path.is_dir(),
-            str(path), optional=not item.required)
+            str(path), optional=item.key!='smpl_npz')
+    vision=Path(os.environ.get('AETHER_VISION_MODEL',str(ROOT/'external/vision/pose_landmarker_full.task')))
+    add('vision-model',vision.is_file(),str(vision))
+    from globalpose_client import runtime_paths
+    gp,gp_python=runtime_paths()
+    add('globalpose-runtime',gp_python.is_file() and all((gp/f).is_file() for f in ('net.py','data/weights.pt','models/SMPL_male.pkl')),str(gp),optional=True)
     backend = ROOT / 'target/release/aetherpose.exe'
     add('backend', backend.is_file(), str(backend))
     # The full asset closure is checked by test_project_integration.py.

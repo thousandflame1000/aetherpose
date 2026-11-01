@@ -1,0 +1,53 @@
+// Exercise the actual page controls and source gates with explicit test packets.
+(async()=>{
+  const checks=[],assert=(ok,name)=>{if(!ok)throw Error(name);checks.push(name);};
+  const $=id=>document.getElementById(id);
+  const packet=value=>meshWs.onmessage({data:JSON.stringify(value)});
+  try{
+    assert(!window.testErrors.length,'initializes without script errors');
+    selectTab('cal');$('hybrid-camera-index').value='2';
+    assert(hybridCamera('start'),'camera command accepted');
+    let sent=JSON.parse(meshWs.sent.at(-1));
+    assert(sent.cmd==='camera_anchor'&&sent.purpose==='hybrid'&&sent.index===2&&sent.vision_model==='full','vision uses shared local camera with requested index');
+    $('hybrid-camera-index').value='11';const before=meshWs.sent.length;
+    assert(!hybridCamera('start')&&meshWs.sent.length===before,'invalid camera rejected before sending');
+    $('hybrid-camera-index').value='0';
+    assert(alignHybridCamera()===undefined&&JSON.parse(meshWs.sent.at(-1)).cmd==='align_camera_pose','camera alignment reaches bridge');
+    packet({position_anchor:{enabled:true,pose_only:true,state:'pose_tracking',message:'人體骨架辨識中。'}});
+    assert(!window.aetherCameraEnabled()&&!window.aetherPositionIssue(),'vision-only tracking does not require positioning markers');
+    assert($('hybrid-start').disabled&&$('hybrid-vision-model').disabled&&!$('hybrid-stop').disabled,'running camera prevents duplicate start or misleading precision changes');
+    packet({position_anchor:{enabled:true,pose_only:true,state:'pose_partial',message:'請讓雙腳入鏡',tracking_fps:9.5}});
+    assert($('hybrid-status').textContent.includes('雙腳')&&$('hybrid-status').textContent.includes('9.5 FPS'),'partial body guidance and measured vision rate are visible');
+    const runtime={model:'hybrid',device:'cpu',pose_fps:30,frame_ms:4,imu_count:2,uncalibrated:0,camera:true,camera_aligned:false,waiting_alignment:true,globalpose:false,globalpose_message:'test'};
+    packet({status:'Streaming #1 PARTIAL imu=2 camera=0 gp=0',runtime});
+    assert(aetherPoseSource(bridgeStatus).kind==='waiting','partial body cannot be scored as full tracking');
+    assert($('setup-steps').textContent.includes('不必湊滿 6 顆'),'setup supports variable IMU count');
+    assert($('hybrid-model').textContent.includes('2 顆')&&$('hybrid-model').textContent.includes('請對齊'),'count and calibration need are visible');
+    packet({status:'Streaming #2 HYBRID imu=0 camera=1 gp=0',runtime:{...runtime,imu_count:0,camera_aligned:false,waiting_alignment:false}});
+    assert(aetherPoseSource(bridgeStatus).kind==='live'&&aetherPoseSource(bridgeStatus).label.includes('影像骨架'),'camera-only input is a live source');
+    packet({status:'Streaming #3 HYBRID imu=7 camera=1 gp=1',runtime:{...runtime,imu_count:7,globalpose:true,camera_aligned:true,waiting_alignment:false}});
+    assert($('hybrid-model').textContent.includes('GlobalPose 已參與融合'),'official model participation visible');
+    $('hybrid-stabilize').checked=false;
+    assert(configureHybridTracking(),'live protection settings accepted');
+    const protection=JSON.parse(meshWs.sent.at(-1));
+    assert(protection.cmd==='configure_tracking'&&protection.stabilize===false&&protection.constraints===true,'protection settings reach the real runner protocol');
+    packet({runtime:{...runtime,rotation_filter:false,joint_constraints:true,heading_feedback_deg:2.5,camera_rejected_bones:2,tracking_version:'realtime-v1'}});
+    assert(!$('hybrid-stabilize').checked&&$('hybrid-constraints').checked&&$('hybrid-protection').textContent.includes('2.5°'),'authoritative filter state and heading correction visible');
+    const rootPose=a=>{const r=new THREE.Matrix4().makeRotationZ(a).elements,R=[];for(let j=0;j<24;j++)R.push(...(j?[1,0,0,0,1,0,0,0,1]:[r[0],r[4],r[8],r[1],r[5],r[9],r[2],r[6],r[10]]));return{rotations:R,translation:[0,0,0]};};
+    const follow=createCausalPoseFollower();follow.push(rootPose(0));follow.push(rootPose(170*Math.PI/180));
+    const mid=follow.step(1/60).rotations,angle=Math.atan2(mid[3],mid[0]);
+    assert(angle>0&&angle<170*Math.PI/180&&Math.abs(Math.hypot(mid[0],mid[3],mid[6])-1)<1e-8,'causal display following advances between packets without shrinking bones');
+    const wrap=createCausalPoseFollower();wrap.push(rootPose(179*Math.PI/180));wrap.push(rootPose(-179*Math.PI/180));
+    const near=wrap.step(1/60).rotations;
+    assert(Math.abs(Math.atan2(near[3],near[0]))>178*Math.PI/180,'display rotation follows shortest path across 180 degrees');
+    packet({runtime:{...runtime,imu_count:7,globalpose:true,camera_aligned:true,waiting_alignment:false}});
+    assert(aetherPoseSource(bridgeStatus).label.includes('7 顆'),'extra IMUs are not truncated to six in the source label');
+    const merged=aetherMergeRoundSource(aetherPoseSource('Streaming #2 HYBRID imu=0 camera=1 gp=0'),aetherPoseSource(bridgeStatus));
+    assert(merged.kind==='live'&&!merged.label.includes('NaN')&&!merged.label.includes('示範'),'configuration change retains truthful live provenance');
+    packet({hybrid_notice:'對齊測試完成。'});assert($('hybrid-status').textContent==='對齊測試完成。','alignment feedback visible');
+    packet({camera_error:'相機被占用'});assert($('hybrid-status').textContent==='相機被占用','camera failure visible in hybrid panel');
+    packet({position_anchor:{enabled:false,state:'off'}});assert($('hybrid-preview').hidden&&!$('hybrid-vision-model').disabled&&!$('hybrid-start').disabled,'stop releases preview and precision controls');
+    $('hybrid-card').scrollIntoView({block:'start'});
+    document.body.dataset.testResult=JSON.stringify({ok:true,checks});
+  }catch(error){document.body.dataset.testResult=JSON.stringify({ok:false,checks,error:String(error),stack:error.stack});}
+})();

@@ -125,7 +125,11 @@ class BodyCalibration:
         try:
             if self.phase == 'tpose':
                 if torso_id is None or torso_id not in self.samples:
-                    raise CalibrationError('沒有即時的胸口或頭部追蹤器，請指派一顆後重試')
+                    if not self.samples:
+                        raise CalibrationError('沒有收到即時追蹤資料，請確認連線後重試')
+                    # With no torso tracker the user may use a limb as the
+                    # reference, holding it rigid relative to the torso while bowing.
+                    torso_id = sorted(self.samples)[0]
                 for tracker_id, rows in self.samples.items():
                     r0, wobble = mean_rotation([r for r, _ in rows])
                     if wobble > MAX_WOBBLE_DEG:
@@ -147,6 +151,8 @@ class BodyCalibration:
             self._fail(f'校正失敗：{exc}。')
             return
         self._enter(ORDER[ORDER.index(self.phase) + 1])
+        if self.phase == 'bow_ready':
+            self.message = f'以追蹤器 {self.torso_id} 為方向參考：保持 T-pose，手臂相對軀幹固定，一起向前鞠躬約 45°。'
 
     def is_calibrated(self, tracker_id):
         return self.smpl2imu is not None and tracker_id in self.device2bone

@@ -38,13 +38,24 @@ MAX_REL_RMS = 0.06       # corrected samples must lie this close to one sphere
 def fit_ellipsoid(samples: np.ndarray):
     """Axis-aligned ellipsoid fit: a x^2 + b y^2 + c z^2 + d x + e y + f z = 1.
     Unlike per-axis min/max it does not need every extreme to be reached."""
-    design = np.column_stack([samples ** 2, samples])
-    p, *_ = np.linalg.lstsq(design, np.ones(len(samples)), rcond=None)
+    samples = np.asarray(samples, dtype=float)
+    if samples.ndim != 2 or samples.shape[1] != 3 or len(samples) < 6 or not np.all(np.isfinite(samples)):
+        return None
+    # Fit around the sample mean: with a large hard-iron offset, the origin can
+    # lie outside a perfectly valid ellipsoid. The uncentered RHS=1 fit then has
+    # negative quadratic coefficients and was incorrectly rejected.
+    origin = samples.mean(axis=0)
+    local = samples - origin
+    design = np.column_stack([local ** 2, local])
+    p, _, rank, _ = np.linalg.lstsq(design, np.ones(len(samples)), rcond=None)
+    if rank < 6:
+        return None
     quad, lin = p[:3], p[3:]
     if np.any(quad <= 0):
         return None
     center = -lin / (2 * quad)
     radii = np.sqrt((1 + np.sum(quad * center ** 2)) / quad)
+    center += origin
     field = float(radii.mean())
     scale = field / radii
     corrected = np.linalg.norm((samples - center) * scale, axis=1)
@@ -107,7 +118,7 @@ async def record(backend: str, tracker_id: int, max_seconds: float) -> np.ndarra
                 cov = fit["coverage"]
                 print(f"\r  {len(samples):4d} 筆  涵蓋率 x {cov[0]:4.0%} y {cov[1]:4.0%} "
                       f"z {cov[2]:4.0%}  磁場 {fit['field']:5.1f} uT".ljust(78), end="", flush=True)
-                if len(samples) >= MIN_SAMPLES and np.all(cov >= TARGET_COVERAGE):
+                if np.all(cov >= TARGET_COVERAGE) and not quality_problems(fit, len(samples)):
                     break
     print()
     return np.array(samples)
@@ -140,7 +151,7 @@ def arduino_cli() -> str:
 
 
 def nano_port(cli: str) -> str | None:
-    out = subprocess.run([cli, "board", "list"], capture_output=True, text=True).stdout
+    out = subprocess.run([cli, "board", "list"], capture_output=True, text=True, encoding="utf-8", errors="replace").stdout
     return next((line.split()[0] for line in out.splitlines() if "Nano 33" in line), None)
 
 
@@ -150,12 +161,12 @@ def flash() -> str:
     if not port:
         sys.exit("USB 上沒有 Nano 33 BLE。校正值已儲存；插上追蹤器後按「只燒錄」（--flash-only）再燒一次。")
     print(f"正在編譯並透過 {port} 燒錄（開機做陀螺儀校正時請讓追蹤器保持靜止）…")
-    build = subprocess.run([cli, "compile", "--fqbn", FQBN, str(SKETCH)], capture_output=True, text=True)
+    build = subprocess.run([cli, "compile", "--fqbn", FQBN, str(SKETCH)], capture_output=True, text=True, encoding="utf-8", errors="replace")
     if build.returncode != 0:
         sys.exit("編譯失敗：\n" + build.stdout[-2000:] + build.stderr[-2000:])
     for attempt in range(2):
         up = subprocess.run([cli, "upload", "--fqbn", FQBN, "-p", port, str(SKETCH)],
-                            capture_output=True, text=True)
+                            capture_output=True, text=True, encoding="utf-8", errors="replace")
         if up.returncode == 0:
             break
         time.sleep(2)

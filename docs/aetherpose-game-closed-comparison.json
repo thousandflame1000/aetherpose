@@ -1,0 +1,21 @@
+{
+  "passed": true,
+  "test_source": "same installed realtime pipeline, rendered still image and six synthetic IMUs",
+  "before": {
+    "measurement_seconds": 5,
+    "model_hz": 3.6,
+    "valid_fraction": 0.31343283582089554,
+    "startup_s": 40.42
+  },
+  "after": {
+    "measurement_seconds": 15,
+    "model_hz": 55.4,
+    "valid_fraction": 1.0,
+    "startup_s": 5.14,
+    "input_frames": 900,
+    "input_hz": 60.0,
+    "last_model_latency_ms": 16.0
+  },
+  "inference": "Strong evidence that competing workload contributed to the slowdown; not a controlled isolation of CPU versus GPU or individual background processes.",
+  "limits": "Measurement windows differ. A still-image observation is republished by the acceptance test, so this measures model/fusion throughput, not live camera frame rate or human accuracy. A valid result can be reused on more than one input tick before its freshness deadline."
+}

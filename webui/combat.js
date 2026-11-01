@@ -7,7 +7,6 @@ window.createAetherCombat = ({ scene: sharedScene, camera, avatar, onRoundEnd=()
   scene.visible = true;
   sharedScene.add(scene);
   const ROUND_SECONDS = 90;
-  const SOURCE_GRACE_S = 1.5;  // how long a round waits for a tracker that dropped out
   const SMPL_RENDER_SCALE = 0.96;
   const SMPL_FLOOR_LIFT = 0.97;
   const SMPL_JOINT = {
@@ -336,6 +335,39 @@ window.createAetherCombat = ({ scene: sharedScene, camera, avatar, onRoundEnd=()
     sourceLostAt: null,
     result: ""
   };
+  let awaitingPoseReset=false;
+  const continuity=createAetherContinuity(frozen=>{
+    for(const key of ['roundEndsAt','targetExpiresAt','nextEnemyAt','targetCheckAt','lastStrikeAt','targetChangedAt'])game[key]+=frozen;
+    pose.handCooldown.left+=frozen;pose.handCooldown.right+=frozen;pose.kickCooldown+=frozen;
+    if(enemyBrain.counterUntil>0)enemyBrain.counterUntil+=frozen;
+    if(game.enemyAttack){game.enemyAttack.startedAt+=frozen;game.enemyAttack.landsAt+=frozen;}
+    pose.prev.clear();pose.vel.clear();
+    setFeed('已恢復，繼續本回合。');
+  });
+  function refreshAvailability(t=nowSec()) {
+    if(!game.running)return false;
+    const source=aetherPoseSource(sourceStatus);
+    const held=continuity.update([
+      suspended&&'切回畫面後繼續。',
+      window.aetherDisplayLost&&'畫面恢復後繼續。',
+      ['requested','tpose_ready','tpose','bow_ready','bow'].includes(calibrationPhase)&&'校正中，完成後自動繼續。',
+      awaitingPoseReset&&'動作重設中，收到資料後繼續。',
+      (!smplIsFresh(t)||source.kind==='error'||Boolean(sourceStatus&&source.kind==='waiting'))&&'等待動作資料，連上後自動繼續。'
+    ],t);
+    game.sourceLostAt=held?continuity.since:null;
+    if(held)setFeed(continuity.message);
+    return held;
+  }
+  function rebaseMotion(waitForPose=false) {
+    pose.prev.clear();pose.vel.clear();activeColliderUntil.clear();
+    if(!game.running)return;
+    awaitingPoseReset=waitForPose;
+    game.enemyAttack=null;attackMat.opacity=0;
+    enemyBrain.phase='idle';enemyBrain.chainPending=false;enemyBrain.followup=false;enemyBrain.counterUntil=0;
+    game.nextEnemyAt=nowSec()+1;
+    game.targetCheckAt=nowSec();game.targetExpiresAt=nowSec()+enemyDifficulty.targetWindow;
+    refreshAvailability();updateHud();
+  }
 
   const targetPositions = {
     head: new THREE.Vector3(0, 1.48, -0.16),
@@ -391,6 +423,8 @@ window.createAetherCombat = ({ scene: sharedScene, camera, avatar, onRoundEnd=()
     const t = nowSec();
     latestSmplJoints = avatar.joints;
     pose.lastAt = t;
+    awaitingPoseReset=false;
+    refreshAvailability(t);
     updateSmplVelocity(joints, t);
     if (active && !suspended) {
       updateAttackColliderMeshes(t);
@@ -439,7 +473,7 @@ window.createAetherCombat = ({ scene: sharedScene, camera, avatar, onRoundEnd=()
     pose.vel.clear();
     clearSmplPoseState();
     setPoseState(false);
-    if (game.running) finishRound("Pose connection lost. Round stopped.");
+    refreshAvailability();
   }
 
   function smplJointLocal(smplIndex) {
@@ -559,19 +593,13 @@ window.createAetherCombat = ({ scene: sharedScene, camera, avatar, onRoundEnd=()
   }
 
   function startRound() {
-    const sourceKind = aetherPoseSource(sourceStatus).kind;
-    const calibrationIssue=aetherCalibrationIssue(sourceStatus,calibrationPhase);
-    if (calibrationIssue) { setFeed(calibrationIssue); return; }
-    if (!active || suspended || !smplIsFresh() || sourceKind === 'error' || (sourceStatus && sourceKind === 'waiting')) {
-      setFeed("等待最新的姿態，才能開始回合。");
-      return;
-    }
+    if(!active)return;
     resetRound();
     game.stats={attempts:0,hits:0,targets:0,blocked:0,defenses:0,received:0,counters:0,bestCombo:0};
     game.breakdown={received:{high:0,body:0,flank:0},defended:{high:0,body:0,flank:0}};
     game.running = true;
     game.sourceLostAt = null;
-    game.roundSource=aetherPoseSource(sourceStatus).signature;
+    game.sourceInfo=aetherPoseSource(sourceStatus);game.roundSource=game.sourceInfo.signature;
     game.playerHp = 100;
     game.enemyHp = 100;
     game.combo = 0;
@@ -593,10 +621,13 @@ window.createAetherCombat = ({ scene: sharedScene, camera, avatar, onRoundEnd=()
       source === 'mixed' ? "回合開始（即時與示範資料混合）。" : "回合開始。");
     $("start-btn").textContent = "重新開始";
     updateHud();
+    refreshAvailability();
+    window.syncSelectedGameControls?.();
     onRoundStart();
   }
 
   function resetRound() {
+    continuity.clear();awaitingPoseReset=false;
     enemyBrain.chainPending=false; enemyBrain.followup=false;
     enemyBrain.phase='idle'; enemyBrain.counterUntil=0;
     if (game.running) reportRound('Round reset.',false);
@@ -624,38 +655,20 @@ window.createAetherCombat = ({ scene: sharedScene, camera, avatar, onRoundEnd=()
     setTargetVisual("head");
     setFeed("回合已重設。");
     updateHud();
+    window.syncSelectedGameControls?.();
   }
 
-  // A tracker dropping out for a moment changes the pose source. The round
-  // freezes for up to SOURCE_GRACE_S (no strikes, no attacks, no clock) and
-  // continues if the source comes back; updateGame ends it otherwise.
-  function trackRoundSource(signature) {
-    const t = nowSec();
-    if (signature !== game.roundSource) {
-      if (game.sourceLostAt != null) return;
-      game.sourceLostAt = t;
-      setFeed("追蹤中斷，等待恢復…");
-    } else if (game.sourceLostAt != null) {
-      const frozen = t - game.sourceLostAt;
-      game.roundEndsAt += frozen; game.targetExpiresAt += frozen; game.nextEnemyAt += frozen;
-      game.targetCheckAt+=frozen;
-      game.lastStrikeAt+=frozen;
-      pose.handCooldown.left+=frozen; pose.handCooldown.right+=frozen; pose.kickCooldown+=frozen;
-      game.targetChangedAt+=frozen;
-      if (enemyBrain.counterUntil>t-frozen) enemyBrain.counterUntil+=frozen;
-      if (game.enemyAttack) { game.enemyAttack.startedAt += frozen; game.enemyAttack.landsAt += frozen; }
-      game.sourceLostAt = null;
-      pose.prev.clear(); pose.vel.clear();
-      setFeed("追蹤恢復，繼續。");
-    }
+  function trackRoundSource(source) {
+    game.sourceInfo=aetherMergeRoundSource(game.sourceInfo,source);
+    game.roundSource=game.sourceInfo.signature;
   }
 
   function finishRound(result) {
     if (!game.running) return;
     enemyBrain.chainPending=false; enemyBrain.followup=false;
     enemyBrain.phase='idle'; enemyBrain.counterUntil=0;
-    game.sourceLostAt = null;
     reportRound(result,['Enemy down.','Player down.','Decision win.','Time.'].includes(result));
+    continuity.clear();game.sourceLostAt=null;
     playBotAnimation(result==='Enemy down.'?'Death':result==='Player down.'?'Dance':
       result==='Decision win.'?'No':result==='Time.'?'Yes':'Idle');
     game.running = false;
@@ -666,12 +679,13 @@ window.createAetherCombat = ({ scene: sharedScene, camera, avatar, onRoundEnd=()
     setFeed(aetherReasonText(result) + " · 得分 " + game.score);
     game.stats.bestCombo=Math.max(game.stats.bestCombo,game.combo);
     updateHud();
+    window.syncSelectedGameControls?.();
   }
   function reportRound(reason,completed) {
     onRoundEnd({mode:'combat',score:game.score,source:game.roundSource,completed,reason,
       difficulty:enemyBrain.difficulty,combatStats:{...game.stats,bestCombo:Math.max(game.stats.bestCombo,game.combo)},
       combatBreakdown:{received:{...game.breakdown.received},defended:{...game.breakdown.defended}},
-      seconds:Math.round(Math.min(ROUND_SECONDS,Math.max(0,nowSec()-game.roundEndsAt+ROUND_SECONDS)))});
+      seconds:Math.round(Math.min(ROUND_SECONDS,Math.max(0,(game.sourceLostAt??nowSec())-game.roundEndsAt+ROUND_SECONDS)))});
   }
 
   function changeTarget(available=null) {
@@ -1024,7 +1038,7 @@ window.createAetherCombat = ({ scene: sharedScene, camera, avatar, onRoundEnd=()
     $("combo-readout").textContent = "x" + game.combo;
     $("target-zone").textContent = game.running ? (game.targetAvailable?targetNames[game.targetZone]:'場景遮擋') : "待命";
     const targetRemaining=Math.max(0,game.targetExpiresAt-(game.sourceLostAt??nowSec()));
-    $("target-window").textContent = game.running ? (game.targetAvailable?`得分 ${game.score} · 目標剩餘 ${targetRemaining.toFixed(1)} 秒`:'整理場景或重設位置後，可重開回合。') : (game.result ? aetherReasonText(game.result) : "");
+    $("target-window").textContent = game.running ? (game.targetAvailable?`得分 ${game.score} · 目標剩餘 ${targetRemaining.toFixed(1)} 秒`:'移開遮擋後會自動出現新目標。') : (game.result ? aetherReasonText(game.result) : "");
     $('combat-target-progress').max=enemyDifficulty.targetWindow;
     $('combat-target-progress').hidden=!game.running || !game.targetAvailable; $('combat-target-progress').value=game.running&&game.targetAvailable?targetRemaining:0;
     $('combat-target-routes').hidden=!game.running || game.availableZones.length===3;
@@ -1056,10 +1070,7 @@ window.createAetherCombat = ({ scene: sharedScene, camera, avatar, onRoundEnd=()
     if (!game.running) {
       return;
     }
-    if (game.sourceLostAt != null) {
-      if (t - game.sourceLostAt > SOURCE_GRACE_S) finishRound("Pose source changed. Round stopped.");
-      return;
-    }
+    if(refreshAvailability(t))return;
 
     game.timeLeft = Math.max(0, game.roundEndsAt - t);
     if (game.timeLeft <= 0) {
@@ -1144,7 +1155,7 @@ window.createAetherCombat = ({ scene: sharedScene, camera, avatar, onRoundEnd=()
     setPoseState(hasSmpl);
     if (!hasSmpl) {
       clearSmplPoseState();
-      if (game.running) finishRound("Pose data expired. Round stopped.");
+      refreshAvailability(t);
     }
 
     updateAttackColliderMeshes(t);
@@ -1172,15 +1183,14 @@ window.createAetherCombat = ({ scene: sharedScene, camera, avatar, onRoundEnd=()
     $("ws-state").textContent = label;
   }
 
-  $("start-btn").addEventListener("click", startRound);
   $("reset-btn").addEventListener("click", resetRound);
   $("recenter-btn").addEventListener("click", () => {
+    if(window.aetherCameraEnabled?.()) {
+      cameraAnchorCommand('align');pose.prev.clear();pose.vel.clear();return;
+    }
     if (sendToBridge && sendToBridge({ cmd: "reset_origin" })) {
-      if (game.running) finishRound("Position reset. Round stopped.");
-      pose.prev.clear();
-      pose.vel.clear();
-      avatar.disconnect();
-      setFeed("玩家位置已重設。");
+      rebaseMotion(true);
+      setFeed("位置已重設，繼續本回合。");
     } else {
       setFeed("姿態服務沒有連線。");
     }
@@ -1188,6 +1198,7 @@ window.createAetherCombat = ({ scene: sharedScene, camera, avatar, onRoundEnd=()
 
   let last = nowSec();
   function tick(t) {
+    refreshAvailability(t);
     const animationPaused=game.running && game.sourceLostAt!==null;
     enemyGroup.userData.animationPaused=animationPaused;
     const animationDt=botFrameAt===null?0:Math.min(Math.max(t-botFrameAt,0),.1);
@@ -1229,6 +1240,11 @@ window.createAetherCombat = ({ scene: sharedScene, camera, avatar, onRoundEnd=()
   updateHud();
 
   return {
+    startRound,
+    isRunning:()=>game.running,
+    isHeld:()=>continuity.held,
+    refreshAvailability,
+    rebaseMotion,
     setPhysics(value) { physics=value; },
     setDebug(on) {
       debugVisible=Boolean(on);
@@ -1242,14 +1258,14 @@ window.createAetherCombat = ({ scene: sharedScene, camera, avatar, onRoundEnd=()
       if (!Number.isFinite(distance)) return;
       botDistance = clamp(distance, 0.8, 1.8);
       enemyGroup.position.x = avatar.combatX + botDistance;
-      resetRound();
-      setFeed("對手距離已更新，請重新開始回合。");
+      rebaseMotion();
+      setFeed("對手距離已更新。");
     },
     setSuspended(on) {
       suspended = on;
       pose.prev.clear();
       pose.vel.clear();
-      if (on && game.running) finishRound("Tab hidden. Round stopped.");
+      refreshAvailability();
       last = nowSec();
     },
     onStatus(status) {
@@ -1259,20 +1275,19 @@ window.createAetherCombat = ({ scene: sharedScene, camera, avatar, onRoundEnd=()
         pose.vel.clear();
       }
       sourceStatus = status;
-      if (game.running && aetherCalibrationIssue(status))
-        finishRound('Body calibration required. Round stopped.');
-      if (game.running) trackRoundSource(aetherPoseSource(status).signature);
+      if (game.running) trackRoundSource(aetherPoseSource(status));
+      refreshAvailability();
       setPoseState(smplIsFresh());
     },
     onCalibration(state) {
+      const changed=state.phase!==calibrationPhase;
       calibrationPhase=state.phase;
-      if (game.running && aetherCalibrationIssue('',calibrationPhase))
-        finishRound('Body calibration. Round stopped.');
+      if(game.running&&changed)rebaseMotion();
+      refreshAvailability();
     },
     setSender(fn) { sendToBridge = fn; },
     onSceneChanged() {
-      pose.prev.clear(); pose.vel.clear();
-      if (game.running) finishRound('Scene changed. Round stopped.');
+      rebaseMotion();
     },
     // Outside a Combat round the robot coaches the pose games: waves at the
     // start, a thumbs-up on a point (at most every 1.2 s), dances at the end.

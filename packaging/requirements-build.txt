@@ -1,0 +1,9 @@
+pyinstaller==6.22.3
+numpy==2.4.4
+scipy==1.17.1
+matplotlib==3.10.9
+mediapipe==0.10.32
+opencv-contrib-python==4.13.0.92
+websockets==16.0
+bleak==3.0.2
+pyserial==3.5

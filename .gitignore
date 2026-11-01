@@ -25,12 +25,31 @@ __pycache__/
 
 # SMPL / DIP-IMU data
 *.npz
+*.pkl
+*.pt
+*.pth
 
 # machine-specific locations of TransPose, SMPL, weights and DIP-IMU (see frontend/external_paths.py)
 external_paths.json
+hybrid_paths.json
 /external/
 
 # config.json save in progress, and the copy kept when it could not be read
 /config.json
 /config.json.tmp
 /config.json.bad
+frontend/camera_profiles/
+
+simulation_paths.json
+
+tools/hybrid_simulation/data/
+
+# Local development and Windows release artifacts
+/.venv/
+/.build-venv/
+/build/
+/dist/
+/body-games-collection.png
+.env
+*.pfx
+*.p12

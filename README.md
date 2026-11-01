@@ -1,6 +1,20 @@
 # Aetherpose
 
-用 6 顆 IMU 追蹤器（Arduino Nano 33 BLE）做全身動作捕捉：追蹤器用 BLE 傳方向與加速度，Rust 後端整理成骨架，TransPose 推論出 SMPL 人體，瀏覽器顯示 3D 人體並提供小遊戲與 Combat 對打。
+## Windows：下載、解壓、雙擊啟動
+
+一般使用者請到 [GitHub Releases](https://github.com/thousandflame1000/aetherpose/releases)
+下載 `AetherPose-…-windows-x64.zip`，完整解壓後雙擊 **AetherPose.exe**。
+不需另裝 Python、Rust 或 SMPL。進入網頁後按「開啟影像骨架」即可使用單鏡頭追蹤。
+
+基本模式使用程式建構的通用人體；IMU 可選配，SMPL 與 GlobalPose 為另行安裝的進階功能。
+攝影機不會自動開啟；關閉啟動器會停止本次啟動的服務。
+詳細步驟、版本限制與建置方式見 [Windows 快速開始](docs/WINDOWS_QUICKSTART.md)。
+
+下方為原始碼／進階功能說明。
+
+使用單鏡頭辨識全身骨架，可搭配 0 顆或多顆 IMU 追蹤器（Arduino Nano 33 BLE）。影像與已校正 IMU 在骨架旋轉空間融合；雙前臂、雙小腿、頭與骨盆六個位置齊備時，自動使用 GlobalPose 的姿態與位移先驗。瀏覽器顯示 SMPL 人體並提供小遊戲與 Combat 對打。
+
+**新版操作與限制：[單鏡頭＋可變數量 IMU](docs/hybrid-runtime.md)。** 舊版 TransPose 程式保留供回歸參考，不再是預設推論來源。
 
 ![Aetherpose 介面：遊戲進行中的訓練場與遊戲庫](docs/aetherpose.png)
 
@@ -8,7 +22,7 @@
 IMU 追蹤器 ──BLE──> 後端 aetherpose.exe ──ws :9009──> 網頁控制面板（追蹤器、校正、設定）
                          │
                          └──ws :9009──> frontend/mesh_bridge.py ──ws :9010──> 3D 人體、小遊戲、Combat
-                                         (TransPose 推論)
+                                         (影像／IMU 融合＋GlobalPose)
 網頁伺服器：http://127.0.0.1:18080/
 ```
 
@@ -20,13 +34,14 @@ IMU 追蹤器 ──BLE──> 後端 aetherpose.exe ──ws :9009──> 網�
 
 ```powershell
 cd aetherpose
-.\setup.ps1      # 安裝 Python 套件、檢查外部檔案、編譯後端
+.\setup.ps1      # 安裝主程式套件與編譯後端
+.\tools\setup_hybrid.ps1 # 安裝影像模型與隔離的 GlobalPose 環境
 .\run.ps1        # 啟動後端、推論與網頁，開啟瀏覽器（已在執行的服務會沿用）
 .\run.ps1 -Restart  # 更新程式後：關掉舊服務，後端程式碼較新時重新編譯，再啟動
 .\stop.ps1       # 關閉
 ```
 
-TransPose、SMPL 模型、權重與 DIP-IMU 不在專案裡，路徑寫在 `external_paths.json`（複製 `external_paths.example.json`），用 `python frontend\external_paths.py` 檢查。完整步驟見 [HANDOFF.md](HANDOFF.md)。
+SMPL 模型為選用：未安裝時使用通用人體，已授權模型可在 `external_paths.json` 設定。影像模型與 GlobalPose 由 `tools/setup_hybrid.ps1` 安裝到不進 Git 的 `external/`；只安裝基本影像時可加 `-SkipGlobalPose`。用 `python frontend\external_paths.py` 檢查檔案；加 `--legacy` 可檢查舊 TransPose 資料。完整步驟見 [Hybrid 操作說明](docs/hybrid-runtime.md)。
 
 ## 連接埠
 
@@ -47,7 +62,7 @@ TransPose、SMPL 模型、權重與 DIP-IMU 不在專案裡，路徑寫在 `exte
 |---|---|
 | `src/` | Rust 後端：BLE 接收、姿態融合、IK、OSC 輸出、錄製、WebSocket（埠 9009）。設定存在 `config.json` |
 | `src/skeleton/tracker_firmware/` | 追蹤器韌體（x-io Fusion AHRS） |
-| `frontend/` | `mesh_bridge.py` 推論服務（埠 9010）、`transpose_runner.py`、`smpl_fk.py`、`external_paths.py`、`body_calibration.py` |
+| `frontend/` | `mesh_bridge.py` 推論服務（埠 9010）、`hybrid_runner.py`、`hybrid_fusion.py`、`vision_pose.py`、`globalpose_worker.py`、`smpl_fk.py`、`external_paths.py`、`body_calibration.py` |
 | `webui/` | 瀏覽器介面：主控面板、共用 3D 場景與訓練場（`environment.js`）、小遊戲、Combat、場景物件與道具庫、磁力計校正；`server.py` 頁面伺服器（含本機工具 API）、`run.ps1`／`stop.ps1` |
 | `tools/` | `calibrate_tracker.py` 磁力計校正與燒錄、`make_scene_props.py` 產生場景庫的訓練道具、`simulate_trackers.py` 沒有硬體時用 UDP 模擬追蹤器、`imu_axes.py` 不經後端直接用 BLE 檢視單顆 IMU（主介面「進階 › 監控」分頁的「三軸 ↗」開的是同一個頁面） |
 | `recordings/` | 「進階 › 系統」分頁錄製的骨架 CSV（不進 git） |
@@ -75,3 +90,7 @@ TransPose、SMPL 模型、權重與 DIP-IMU 不在專案裡，路徑寫在 `exte
 | [EXTERNAL_DEPENDENCIES.md](EXTERNAL_DEPENDENCIES.md) | 外部方法、資料與授權 |
 | [tools/IMU_AXES_README.md](tools/IMU_AXES_README.md) | 韌體座標軸與單顆 IMU 測試 |
 | [docs/acceptance-status.md](docs/acceptance-status.md) | 軟體驗收紀錄 |
+
+## 虛擬 IMU 與遮擋模擬
+
+參見 [互動合成實驗](tools/hybrid_simulation/README.md)：已知 3D 動作、虛擬 IMU、真實 RGB 辨識、遮擋與誤差比較。

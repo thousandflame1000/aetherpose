@@ -49,6 +49,8 @@ def firmware_calibrations(path=FIRMWARE):
 
 
 def tool_command(kind, tracker_id, flash):
+    if getattr(sys,'frozen',False):
+        raise ValueError('Windows 可攜版不含韌體編譯工具。請使用原始碼版進行磁力計校正與燒錄。')
     command = [sys.executable, '-u', str(CALIBRATE), '--id', str(tracker_id)]
     if kind == 'flash':
         return command + ['--flash-only']
@@ -231,7 +233,11 @@ class PageHandler(SimpleHTTPRequestHandler):
                 raise ValueError('kind, id or flash')
         except (ValueError, AttributeError) as exc:
             return self.send_json({'error': f'請求無效：{exc}'}, 400)
-        if not self.job.start(kind, tracker_id, flash):
+        try:
+            started=self.job.start(kind, tracker_id, flash)
+        except ValueError as exc:
+            return self.send_json({'error':str(exc)},400)
+        if not started:
             return self.send_json({'error': '已有其他工具正在執行'}, 409)
         return self.send_json(self.job.state(), 202)
 

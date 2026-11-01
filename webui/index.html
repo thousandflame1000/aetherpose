@@ -24,7 +24,7 @@
       <span id="pose-performance"></span>
     </div>
     <div id="game-hud">
-      <select id="game-mode" aria-label="姿勢遊戲" onchange="changePoseGame()">
+      <select id="game-mode" aria-label="選擇遊戲" onchange="changePoseGame()">
         <option value="reach">Reach Targets</option>
         <option value="squat">Squat Rhythm</option>
         <option value="balance">Balance Hold</option>
@@ -33,14 +33,21 @@
         <option value="clap">Clap Pulse</option>
         <option value="march">March Step</option>
 <option value="star">Star Hold</option><option value="cross">Cross Knee</option><option value="guard">Guard Drill</option><option value="shoulder">Shoulder Tap</option><option value="highfive">High Five</option><option value="bow">Bow Rhythm</option>
+<option value="memory" selected>身體記憶序列</option>
+<option value="freeze">紅綠燈全身定格</option>
+<option value="reaction">Reaction Lights</option>
+<option value="combat">機器人對戰</option>
       </select>
       <div id="game-stats" style="display:none">
         <div class="stat"><span class="stat-label">分數</span><span id="game-score">0</span></div>
         <div class="stat"><span class="stat-label">時間</span><span id="game-time"></span></div>
         <div class="stat"><span class="stat-label">最佳</span><span id="game-best">0</span></div>
         <span id="game-combo"></span>
+        <span id="game-goal-progress" hidden aria-live="polite"></span>
       </div>
       <button id="game-btn" onclick="startGame()">開始 Reach Targets</button>
+      <button class="btn primary" id="start-btn" hidden onclick="startGame()">開始回合</button>
+      <button class="btn" id="combat-stop" hidden onclick="AetherCombat.stopRound('Round stopped.');syncSelectedGameControls()">結束回合</button>
       <button class="btn" id="game-stop" style="display:none" onclick="endGame('Round ended')">結束回合</button>
       <button class="btn" id="game-pause" style="display:none" aria-pressed="false" onclick="toggleGamePause()">暫停</button>
     </div>
@@ -51,10 +58,15 @@
   <div id="circuit-hud" hidden aria-label="訓練控制">
     <span id="circuit-hud-status" aria-live="polite"></span>
     <button class="btn" id="circuit-hud-next" hidden onclick="nextPoseCircuitRound()">開始下一關</button>
+    <button class="btn" id="circuit-hud-auto-cancel" hidden onclick="cancelCircuitAuto()">取消自動接關</button>
     <button class="btn" id="circuit-hud-export" hidden onclick="exportPoseCircuit()">匯出訓練報告</button>
     <button class="btn" onclick="stopPoseCircuit()">結束訓練</button>
   </div>
   <div id="pose-game-cue" aria-live="polite"></div>
+  <div id="reaction-hud" hidden aria-label="反應燈訓練">
+    <div class="reaction-lamps"><span data-reaction-lamp="1">左手</span><span data-reaction-lamp="2">右手</span><span data-reaction-lamp="3">雙手</span></div>
+    <div id="reaction-message" role="status"></div><div id="reaction-stats"></div>
+  </div>
   <progress id="pose-ready" max="100" value="0" hidden aria-label="站立校準進度"></progress>
   <div id="view-toolbar" aria-label="視角" title="拖曳旋轉 · 滾輪縮放 · 右鍵拖曳平移">
     <select id="scene-view" aria-label="視角" onchange="setSceneView(this.value)">
@@ -69,8 +81,7 @@
   </div>
   <div id="scene-toolbar" aria-label="顯示">
     <span id="scene-activity">
-      <button class="btn" id="scene-games-btn" onclick="openGameLibrary()">遊戲庫</button>
-      <button class="btn" id="scene-combat-btn" onclick="selectTab('combat')">對打</button>
+      <button class="btn" id="scene-games-btn" onclick="openGameLibrary()">選擇遊戲</button>
       <span class="toolbar-sep"></span>
     </span>
     <label class="toggle" title="遊戲中的提示音"><input id="game-sound" type="checkbox" checked> 音效</label>
@@ -101,12 +112,6 @@
         </div>
       </div>
 
-      <div class="controls">
-        <select id="combat-difficulty" aria-label="對戰難度" title="難度在下一回合套用"><option value="easy">練習</option><option value="normal" selected>標準</option><option value="hard">挑戰</option></select>
-        <button class="primary" id="start-btn">開始回合</button>
-        <button id="reset-btn">重設</button>
-        <button id="recenter-btn">回到中央</button>
-      </div>
     </div>
 
     <div class="left-stack">
@@ -134,7 +139,7 @@
     </div>
 
     <div class="bottom">
-      <div class="feed" id="event-feed">等待姿態服務…</div>
+      <div class="feed" id="event-feed" role="status">等待動作追蹤…</div>
       <div class="legend">
         <div class="tag" id="tag-guard" title="雙手護住頭部時亮起：擋高位攻擊與身體攻擊">護頭</div>
         <div class="tag" id="tag-crouch" title="蹲低時亮起：躲高位攻擊">蹲下</div>
@@ -157,7 +162,6 @@
   <div id="tabbar" role="tablist" aria-label="主要分頁">
     <div class="tab active" data-tab="cal"><svg class="tab-icon" viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="2.5"/><path d="M5.2 8.2l2 2 3.8-4"/></svg>準備</div>
     <div class="tab" data-tab="games"><svg class="tab-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 3.5v9l7-4.5z"/></svg>遊戲</div>
-    <div class="tab" data-tab="combat"><svg class="tab-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M9.2 1.8L4 9h3.8l-1 5.2L12 7H8.2z"/></svg>對打</div>
     <button id="advanced-toggle" type="button" aria-expanded="false" aria-controls="subtabbar"
       title="監控、骨架與系統設定" onclick="toggleAdvancedTabs()"><svg class="tab-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/><circle cx="6" cy="4.5" r="1.6"/><circle cx="10.5" cy="8" r="1.6"/><circle cx="5" cy="11.5" r="1.6"/></svg>進階</button>
   </div>
@@ -188,7 +192,7 @@
       <div class="card">
         <div class="card-hdr">身體校正</div>
         <div class="card-body">
-          <div class="hint" title="讓姿態模型知道每顆追蹤器戴在身上的方式與你面向哪裡，同時重設 IK 骨架的配戴。">照提示做 T-pose，再向前鞠躬，約 8 秒。每次穿戴後做一次。</div>
+          <div class="hint" title="讓姿態模型知道每顆追蹤器戴在身上的方式與你面向哪裡，同時重設 IK 骨架的配戴。">只用影像時不需做 IMU 校正。有穿戴 IMU 時，照提示做 T-pose 再鞠躬，每次穿戴後做一次。</div>
           <div class="btn-row">
             <button class="btn primary" id="body-cal-start" onclick="startBodyCalibration()">校正身體</button>
             <button class="btn" id="body-cal-cancel" onclick="cancelBodyCalibration()" disabled>取消</button>
@@ -196,6 +200,41 @@
           <div id="body-cal-status" role="status" style="font-size:12px"></div>
         </div>
       </div>
+      <div class="card" id="hybrid-card">
+        <div class="card-hdr">影像＋IMU 動作捕捉</div>
+        <div class="card-body">
+          <p class="hint">讓一人全身入鏡，頭、雙手與雙腳都要看得到；保持光線充足。可只用相機，或加入多顆 IMU 補強動作。</p>
+          <label for="hybrid-vision-model">影像精度</label><select id="hybrid-vision-model"><option value="full" selected>精細</option><option value="lite">快速（較省效能）</option></select>
+          <label for="hybrid-camera-index">相機編號</label><input id="hybrid-camera-index" type="number" min="0" max="9" value="0">
+          <div class="btn-row"><button class="btn primary" id="hybrid-start" onclick="hybridCamera('start')">開啟影像骨架</button><button class="btn" id="hybrid-stop" onclick="hybridCamera('stop')" disabled>停止影像</button></div>
+          <img id="hybrid-preview" alt="本機人體骨架辨識預覽" hidden style="width:100%;border-radius:8px">
+          <div class="btn-row"><button class="btn" onclick="alignHybridCamera()">對齊相機與 IMU</button></div>
+          <p class="hint">對齊時站直、面向 IMU 校正時的正前方。相機需固定；移動相機或重新校正 IMU 後再對齊。</p>
+          <div id="hybrid-status" class="hint" role="status">請開啟影像骨架。</div>
+          <div id="hybrid-model" class="hint" role="status"></div>
+          <div class="btn-row"><label><input type="checkbox" id="hybrid-stabilize" checked onchange="configureHybridTracking()">姿態降抖</label><label><input type="checkbox" id="hybrid-constraints" checked onchange="configureHybridTracking()">關節保護</label></div>
+          <div id="hybrid-protection" class="hint" role="status">姿態降抖與關節保護預設開啟。</div>
+          <p class="hint">降抖會帶來少量動作延遲；可關閉比較原始追蹤。相機中斷時，停止新增影像修正。</p>
+          <p class="hint">GlobalPose 使用雙前臂、雙小腿、頭、骨盆六個位置；其他配置使用影像與已校正 IMU 融合。影像被遮擋且 IMU 不足時，只更新可觀測部位並暫停遊戲計分。</p>
+        </div>
+      </div>
+      <details class="card" id="camera-position-card">
+        <summary>相機位置追蹤</summary>
+        <div class="card-body">
+          <p class="hint">將標記 0 放在地面，標記 1 固定在腰部，讓鏡頭同時拍到兩張標記。</p>
+          <a class="btn" style="display:block;text-align:center;text-decoration:none" href="camera-targets/print.html" target="_blank" rel="noopener">列印腰牌、地面板與校正棋盤 ↗</a>
+          <label for="anchor-camera-index">相機編號（0–9）</label><input id="anchor-camera-index" type="number" min="0" max="9" value="0">
+          <label for="anchor-marker-size">兩張標記的實測黑框邊長（公尺）</label><input id="anchor-marker-size" type="number" min="0.03" max="0.5" step="0.001" value="0.12">
+          <div class="btn-row"><button class="btn" id="anchor-start" onclick="cameraAnchorCommand('start')">開啟相機</button><button class="btn" id="anchor-stop" onclick="cameraAnchorCommand('stop')">停止相機</button></div>
+          <img id="anchor-preview" alt="本機相機預覽與標記辨識" hidden style="width:100%;border-radius:8px">
+          <div id="anchor-status" class="hint" role="status">相機定位未啟動。</div>
+          <div id="anchor-notice" class="hint" role="status"></div>
+          <div class="btn-row"><button class="btn" onclick="cameraAnchorCommand('sample')">收集棋盤</button><button class="btn" onclick="cameraAnchorCommand('solve')">計算鏡頭校正</button></div>
+          <p class="hint">使用 9×6 內角點、每格 25 mm 棋盤，收集至少 12 個不同角度與位置。移動相機／標記板後須重設參考座標。</p>
+          <div class="btn-row"><button class="btn" onclick="cameraAnchorCommand('reference')">重設參考板</button><button class="btn primary" onclick="cameraAnchorCommand('align')">記錄位置原點</button></div>
+          <p class="hint">標記被遮住時保留最後位置，動作遊戲可繼續。</p>
+        </div>
+      </details>
       <details class="card" id="tracker-tools">
         <summary>追蹤器工具</summary>
         <div class="card-body">
@@ -380,14 +419,32 @@
     <!-- Games: library, history, arena -->
     <div class="page" id="page-games">
     <details class="card primary-card" id="game-library" open>
-      <summary>遊戲庫</summary>
+      <summary>遊戲大廳</summary>
       <div class="card-body">
         <label for="game-search">搜尋遊戲</label>
-        <input id="game-search" type="search" placeholder="例如：深蹲、平衡、Combat" oninput="filterGameLibrary()">
+        <input id="game-search" type="search" placeholder="搜尋名稱或動作" oninput="filterGameLibrary()">
         <label class="check-row"><input id="game-favorites-only" type="checkbox" onchange="filterGameLibrary()">只顯示收藏</label>
         <div id="game-search-status" aria-live="polite"></div>
         <div id="game-library-list"></div>
+        <div class="selected-game-heading"><h2 id="game-guide-title"></h2><span id="game-readiness"></span></div>
         <div id="game-guide" aria-live="polite"></div>
+        <div id="combat-options" hidden>
+          <label for="combat-difficulty">對戰難度</label>
+          <select id="combat-difficulty" aria-label="對戰難度"><option value="easy">練習</option><option value="normal" selected>標準</option><option value="hard">挑戰</option></select>
+          <details class="game-options"><summary>對戰設定</summary>
+            <div class="slider-row"><label class="field-label" for="combat-distance">對手距離</label>
+              <input type="range" id="combat-distance" min="0.8" max="1.8" step="0.05" value="1.1"
+                oninput="document.getElementById('combat-distance-value').textContent=(+this.value).toFixed(2)+' m'; AetherCombat.setDistance(+this.value)">
+              <span class="slider-val" id="combat-distance-value">1.10 m</span></div>
+            <div class="hint">調整距離會結束目前回合。</div>
+            <div class="btn-row"><button class="btn" id="reset-btn">重設對戰</button><button class="btn" id="recenter-btn">回到中央</button></div>
+          </details>
+        </div>
+        <details id="pose-round-options" class="game-options"><summary>回合設定</summary>
+        <label for="pose-score-goal">目標分數（0 為不設定）</label>
+        <input id="pose-score-goal" type="number" min="0" max="1000" step="1" value="0" onchange="saveScoreGoal()">
+        <div id="pose-score-goal-status" class="hint" role="status"></div>
+        </details>
         <div class="btn-row">
           <button id="library-start" class="btn primary" type="button" onclick="startGame()" style="flex:2">開始 Reach Targets</button>
           <button id="game-favorite-btn" class="btn" type="button" aria-pressed="false" onclick="toggleGameFavorite()">☆ 收藏目前遊戲</button>
@@ -395,7 +452,7 @@
       </div>
     </details>
     <details class="card" id="training-card">
-      <summary>多遊戲訓練</summary>
+      <summary>連續動作訓練</summary>
       <div class="card-body">
         <label for="pose-circuit">訓練組合</label>
         <select id="pose-circuit" onchange="showCustomCircuit()"><option value="upper">上肢：拍手 → 碰肩 → 擊掌</option><option value="lower">下肢：深蹲 → 抬膝 → 平衡</option><option value="mixed">混合：伸手 → 閃避 → 對側碰膝</option><option value="custom">自訂三關</option></select>
@@ -412,6 +469,9 @@
           <button class="btn" id="circuit-export" hidden onclick="exportPoseCircuit()">匯出訓練報告</button>
         </div>
         <span id="circuit-status" class="hint" aria-live="polite">每關 60 秒。</span>
+        <label><input id="circuit-auto" type="checkbox">完成一關後，休息倒數並自動接下一關</label>
+        <label for="circuit-rest">關卡間休息</label><select id="circuit-rest"><option value="10">10 秒</option><option value="20" selected>20 秒</option><option value="30">30 秒</option><option value="60">60 秒</option></select>
+        <button class="btn" id="circuit-auto-cancel" hidden onclick="cancelCircuitAuto()">取消這次自動接關</button>
         <button class="btn" id="last-training-export" disabled onclick="exportLastTrainingReport()">匯出上次完成報告</button>
         <span id="last-training-status" class="hint"></span>
       </div>
@@ -425,8 +485,23 @@
 <select id="history-source" onchange="renderRoundHistory()"><option value="all">全部來源</option><option value="demo">示範</option><option value="live">即時</option><option value="mixed">混合</option></select>
 <div id="history-difficulty-controls"><label for="history-difficulty">對戰難度</label><select id="history-difficulty" onchange="renderRoundHistory()"><option value="all">全部難度</option><option value="easy">練習</option><option value="normal">標準</option><option value="hard">挑戰</option><option value="unknown">舊紀錄／未指定</option></select></div>
 <span id="history-matches" class="hint"></span>
+<label for="history-period">日期範圍（台灣時間）</label>
+<select id="history-period" onchange="renderRoundHistory()"><option value="all">全部日期</option><option value="week">本週</option><option value="last-week">上週</option><option value="custom">自訂日期</option></select>
+<div id="history-date-controls" hidden>
+<label for="history-date-start">開始日期（含當日）</label><input id="history-date-start" type="date" min="1970-01-01" max="9999-12-31" onchange="renderRoundHistory()">
+<label for="history-date-end">結束日期（含當日）</label><input id="history-date-end" type="date" min="1970-01-01" max="9999-12-31" onchange="renderRoundHistory()">
+</div>
+<div id="history-date-status" class="hint" role="status"></div>
+<label for="history-origin">紀錄取得方式</label><select id="history-origin" onchange="renderRoundHistory()"><option value="all">全部紀錄</option><option value="local">本機／舊紀錄</option><option value="imported">備份匯入</option></select>
+<div id="history-training-summary" class="hint" role="status" style="white-space:pre-line;line-height:1.7"></div>
+<button class="btn" id="history-csv-export" onclick="exportFilteredHistoryCsv()">匯出目前篩選（CSV）</button>
 <div id="history-combat-summary" hidden class="hint" style="line-height:1.7;padding:8px;border:1px solid var(--border);border-radius:6px"></div>
 <button class="btn" onclick="exportRoundHistory()">匯出全部（JSON）</button>
+<label for="history-import-file">還原回合備份（JSON，最多 256 KB）</label>
+<input id="history-import-file" type="file" accept=".json,application/json" onchange="previewHistoryBackup(this.files[0])">
+<div id="history-import-status" class="hint" role="status" style="white-space:pre-line"></div>
+<button class="btn" id="history-import-apply" hidden onclick="applyHistoryBackup()">確認合併備份</button>
+<button class="btn" id="history-import-cancel" hidden onclick="cancelHistoryBackup()">取消還原</button>
         <button class="btn" onclick="askClearRoundHistory()">清除紀錄</button>
         <button class="btn" onclick="askClearBestScores()">清除最佳成績</button>
         <div id="history-list"></div>
@@ -521,28 +596,22 @@
     </details>
     </div>
 
-    <!-- Combat -->
-    <div class="page" id="page-combat">
-      <div class="card primary-card">
-        <div class="card-hdr">Aether Combat<span class="meta">90 秒對戰</span></div>
-        <div class="card-body">
-          <div class="hint">按場景上方的「開始回合」開始。</div>
-          <div class="slider-row"><label class="field-label" for="combat-distance">對手距離</label>
-            <input type="range" id="combat-distance" min="0.8" max="1.8" step="0.05" value="1.1"
-                   oninput="document.getElementById('combat-distance-value').textContent=(+this.value).toFixed(2)+' m'; AetherCombat.setDistance(+this.value)">
-            <span class="slider-val" id="combat-distance-value">1.10 m</span></div>
-          <div class="hint"><b>攻擊：</b>出拳（手快速揮出、至少到胸口高度）或踢腿（腳快速離地），打中亮起的部位。</div>
-          <div class="hint"><b>防禦：</b>高位攻擊 &rarr; 雙手護頭或蹲下；身體攻擊 &rarr; 護頭；側面攻擊 &rarr; 身體往旁邊傾。</div>
-          <div class="hint">離開這個分頁或調整距離會結束回合。</div>
-        </div>
-      </div>
-    </div>
-
   </div>
 </div>
 
+<div id="development-controls" hidden>
+  <button id="body-replay-start" hidden onclick="startBodyReplay()">動作資料回放</button>
+  <button id="reaction-practice-start" hidden onclick="startReactionPractice()">反應燈鍵盤測試</button>
+</div>
+<dialog id="reaction-practice" aria-labelledby="reaction-practice-title">
+  <h2 id="reaction-practice-title">Reaction Lights 鍵盤試玩</h2>
+  <p>非動作捕捉，不寫入成績。A：左手，L：右手，空白鍵：雙手；每題放開所有按鍵再等亮燈。</p>
+  <div class="reaction-lamps"><span data-practice-lamp="1">左手 A</span><span data-practice-lamp="2">右手 L</span><span data-practice-lamp="3">雙手 空白</span></div>
+  <div id="reaction-practice-message" role="status"></div><div id="reaction-practice-stats"></div>
+  <div class="btn-row"><button class="btn" onclick="startReactionPractice()">重新試玩 60 秒</button><button class="btn" onclick="closeReactionPractice()">關閉</button></div>
+</dialog>
 <script src="skinning.js"></script>
-<script src="avatar.js"></script>
+<script src="pose_follow.js"></script><script src="avatar.js"></script>
 <script src="physics.js"></script>
 <script src="environment.js"></script>
 <script src="scene-assets.js"></script>
@@ -550,6 +619,9 @@
 <script src="combat.js"></script>
 <script src="scene.js"></script>
 <script src="pose.js"></script>
+<script src="hybrid.js"></script>
+<script src="body-games.js"></script>
+<script src="reaction.js"></script>
 <script src="games.js"></script>
 <script src="backend.js"></script>
 <script src="trackers.js"></script>

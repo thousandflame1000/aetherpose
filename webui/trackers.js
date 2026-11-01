@@ -86,13 +86,19 @@ function renderSetupSteps() {
   const live = liveTrackers(), bones = new Set(live.map(t => t.assigned_bone));
   const missing = SLOT_BONES.filter(id => !bones.has(id)).map(id => BONE_NAMES[id]);
   const source = aetherPoseSource(bridgeStatus).kind;
-  const steps = [
+  const isHybrid=typeof hybridRuntime!=='undefined'&&hybridRuntime!==null;
+  const steps = isHybrid ? [
+    ['connect',Boolean(hybridRuntime.camera||live.length),hybridRuntime.camera?'影像骨架已辨識人體。':live.length?`已連上 ${live.length} 顆 IMU。`:'開啟影像骨架；IMU 可選，可隨時加入。'],
+    ['assign',live.every(t=>t.assigned_bone!=null),'把每顆 IMU 指派到實際穿戴部位，不必湊滿 6 顆。'],
+    ['calibrate',!bodyCalibrationActive(bodyCalibrationPhase)&&!hybridRuntime.uncalibrated&&!hybridRuntime.waiting_alignment,
+      hybridRuntime.uncalibrated?'請先校正身體。':hybridRuntime.waiting_alignment?'站直面向正前方，按「對齊相機與 IMU」。':'校正已就緒；遮擋或資料中斷時會暫停計分。']
+  ] : [
     ['connect', live.length > 0, live.length ? `已連上 ${live.length} 顆追蹤器。` :
       backendConnected ? '打開追蹤器，等它們透過藍牙連上。' : '後端沒有連線：請用 run.ps1 啟動服務。'],
     ['assign', missing.length === 0, missing.length ? `把追蹤器指派到 6 個部位，還缺：${missing.join('、')}。缺的部位用示範資料補。` :
       '6 個部位都已指派。'],
-    ['calibrate', (source === 'live' || source === 'mixed') && !bridgeStatus.includes('uncalibrated'),
-      (source === 'live' || source === 'mixed') && !bridgeStatus.includes('uncalibrated') ? '身體已校正。' : '戴好後按下方「校正身體」。'],
+    ['calibrate', (source === 'live' || source === 'mixed') && !bodyCalibrationActive(bodyCalibrationPhase),
+      bodyCalibrationActive(bodyCalibrationPhase)?'正在校正，回合會保留。':bridgeStatus.includes('uncalibrated')?'可以先玩，或按「校正身體」調整配戴方向。':'身體已校正。'],
   ];
   const current = steps.findIndex(([, done]) => !done);
   steps.forEach(([name, done, text], index) => {
@@ -105,10 +111,10 @@ function renderSetupSteps() {
   document.getElementById('setup-steps').classList.toggle('all-done', current < 0);
   const doneCount = steps.filter(([, done]) => done).length;
   document.getElementById('setup-summary').textContent = current < 0 ? '全部就緒' : `完成 ${doneCount} / 3`;
-  // A pose model error blocks every step after the trackers: keep its reason here.
+  // Keep the service issue visible while the queued round waits for recovery.
   const error = document.getElementById('setup-error');
   error.hidden = source !== 'error';
-  error.textContent = source === 'error' ? '姿態模型有問題，人體與遊戲都無法使用：' +
+  error.textContent = source === 'error' ? '動作資料暫時無法更新，恢復後會自動繼續：' +
     bridgeStatus.replace(/^(Error|Infer err):\s*/, '') + '（詳見 logs/mesh_bridge.err.log）' : '';
 }
 function updateTrackers(trackers, receivedAt = performance.now()/1000, ageOnly = false) {
@@ -149,7 +155,7 @@ function updateTrackers(trackers, receivedAt = performance.now()/1000, ageOnly =
     select.options[0].disabled = t.assigned_bone != null;
     if (document.activeElement !== select) select.value = t.assigned_bone == null ? '' : String(t.assigned_bone);
     cal.querySelector('.conn').textContent = connection;
-    cal.querySelector('.ik-only').hidden = t.assigned_bone == null || SLOT_BONES.includes(t.assigned_bone);
+    cal.querySelector('.ik-only').hidden = Boolean(typeof hybridRuntime!=='undefined'&&hybridRuntime)||t.assigned_bone == null || SLOT_BONES.includes(t.assigned_bone);
     cal.classList.toggle('stale',stale);
     cal.title = Number.isFinite(age) ? '上次更新：'+Math.round(age)+' ms 前' : '沒有更新時間';
 
@@ -280,10 +286,6 @@ async function cancelTool() {
 }
 // These change only the IK skeleton, which the avatar does not show: confirm them.
 function trackerAction(command, done, needsTrackers = false) {
-  if (needsTrackers && backendConnected && !liveTrackers().length) {
-    showPanelNotice('沒有連線中的追蹤器，沒有東西可以重設。', 5);
-    return false;
-  }
   if (!cmd(command)) return false;
   showPanelNotice(done, 4);
   return true;

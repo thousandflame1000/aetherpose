@@ -1,5 +1,7 @@
 # Aetherpose 交接說明
 
+> 新版預設使用單鏡頭＋可變數量 IMU 融合；六個指定部位齊備時啟用 GlobalPose。安裝與操作以 [Hybrid 操作說明](docs/hybrid-runtime.md) 為準。下方固定六顆、TransPose 與示範補槽內容是舊版流程，保留作歷史參考。
+
 只驗收軟體、沒有 IMU 時，先依 [軟體展示與驗收](docs/software-delivery.md) 操作。以下韌體與穿戴步驟屬硬體擴充，不是本次軟體交付的必要條件。
 
 ## 硬體需求

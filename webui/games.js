@@ -48,9 +48,54 @@ for (let i = 0; i < N_TARGETS; i++) {
 }
 
 const game = { state: 'idle', score: 0, combo: 0, lastHitAt: 0, timeLeft: GAME_DURATION_S, deadline: 0 };
+const poseContinuity=createAetherContinuity(seconds=>{
+  game.deadline+=seconds*1000;
+  game.calibrationSince+=seconds*1000;
+  resetPoseGesture();
+});
+function resetPoseGesture(rebase=false) {
+  if(game.state!=='playing')return;
+  game.hold=0;game.readyHold=0;game.readyHeight=null;game.sampleAt=performance.now();game.lastHitAt=-Infinity;
+  if(game.bodyGame)BodyGames.interrupt(game.bodyGame);
+  if(game.mode==='reaction')ReactionGame.reset(game.reaction);
+  if(rebase){game.rebaseOnNextPose=true;refreshPoseContinuity();}
+}
+function refreshPoseContinuity(now=performance.now()) {
+  if(game.state!=='playing')return false;
+  const source=aetherPoseSource(bridgeStatus);
+  const unavailable=meshWs?.readyState!==WebSocket.OPEN||!avatar.fresh(now/1000)||source.kind==='error'||Boolean(bridgeStatus&&source.kind==='waiting');
+  const previouslyHeld=poseContinuity.held;
+  const held=poseContinuity.update([
+    game.paused&&'已暫停，按「繼續」接著玩。',
+    document.hidden&&'切回畫面後繼續。',
+    window.aetherDisplayLost&&'畫面恢復後繼續。',
+    bodyCalibrationActive(bodyCalibrationPhase)&&'校正中，完成後自動繼續。',
+    game.rebaseOnNextPose&&'動作重設中，收到資料後繼續。',
+    unavailable&&'等待動作資料，連上後自動繼續。'
+  ],now/1000);
+  game.sourceLostAt=held?poseContinuity.since*1000:null;
+  targetMeshes.forEach(target=>target.visible=!held&&game.mode==='reach'&&Boolean(target.userData.available));
+  if(held)document.getElementById('pose-game-cue').textContent=poseContinuity.message;
+  if(previouslyHeld!==held)renderGameStats();
+  return held;
+}
+function acceptPoseGameSample() {
+  if(game.state!=='playing')return;
+  if(game.rebaseOnNextPose){game.rebaseOnNextPose=false;captureStandingBaseline(avatar.joints);resetPoseGesture();}
+  refreshPoseContinuity();
+}
+function captureStandingBaseline(joints) {
+  if(!joints||joints.length<=SMPL_R_HAND)return;
+  const floor=Math.min(joints[10][1],joints[11][1]);
+  game.standingHeight=THREE.MathUtils.clamp(joints[15][1]-floor,.8,2.4);
+  game.standingHip=THREE.MathUtils.clamp(joints[0][1]-floor,.35,1.5);
+  game.standingHeadOffset=new THREE.Vector3(...joints[15]).sub(new THREE.Vector3(...joints[0]));
+  game.standingChestOffset=new THREE.Vector3(...joints[9]).sub(new THREE.Vector3(...joints[0]));
+  game.standingKnees=[joints[4][1]-joints[0][1],joints[5][1]-joints[0][1]];
+}
 // Round-end reasons are English codes; avatar.js names them for people.
 const reasonText=reason=>aetherReasonText(reason);
-const poseGameNames={reach:'Reach Targets',squat:'Squat Rhythm',balance:'Balance Hold',dodge:'Dodge Flow',sky:'Sky Catch',clap:'Clap Pulse',march:'March Step',star:'Star Hold',cross:'Cross Knee',guard:'Guard Drill',shoulder:'Shoulder Tap',highfive:'High Five',bow:'Bow Rhythm'};
+const poseGameNames={reach:'伸手碰目標',squat:'深蹲',balance:'單腳平衡',dodge:'左右閃避',sky:'高空接球',clap:'拍手',march:'交替抬膝',star:'展臂保持',cross:'對側碰膝',guard:'護頭防守',shoulder:'交叉碰肩',highfive:'交替擊掌',bow:'鞠躬',reaction:'舉手反應',memory:'身體記憶序列',freeze:'紅綠燈全身定格'};
 const historyStorageKey='aetherpose.round-history.v1';
 function normalizeCombatHistory(entry) {
   if (entry.mode!=='combat') return entry;
@@ -65,14 +110,163 @@ function loadRoundHistory() {
   try {
     const saved=JSON.parse(localStorage.getItem(historyStorageKey)||'[]');
     if (!Array.isArray(saved)) return [];
-    return saved.filter(entry=>entry && (entry.mode==='combat' || Object.hasOwn(poseGameNames,entry.mode)) &&
-      Number.isSafeInteger(entry.at) && entry.at>0 && Number.isSafeInteger(entry.score) && entry.score>=0 &&
-      /^(demo:0|live:6|mixed:[1-6])$/.test(entry.source) && typeof entry.completed==='boolean' &&
-      typeof entry.reason==='string' && entry.reason.length<=140 && Number.isFinite(entry.seconds) &&
-      entry.seconds>=0 && entry.seconds<=90).slice(0,50).map(normalizeCombatHistory);
+    return saved.filter(validHistoryRound).slice(0,50).map(normalizeCombatHistory);
   } catch (_) { return []; }
 }
 let roundHistory=loadRoundHistory();
+function validHistoryRound(entry) {
+  return entry && typeof entry==='object' && !Array.isArray(entry) && typeof entry.mode==='string' &&
+    (entry.mode==='combat'||Object.hasOwn(poseGameNames,entry.mode)) && Number.isSafeInteger(entry.at) && entry.at>0 &&
+    Number.isFinite(new Date(entry.at+8*3600000).getTime()) && Number.isSafeInteger(entry.score) && entry.score>=0 &&
+    typeof entry.source==='string' && /^(demo:0|live:6|mixed:[1-6])$/.test(entry.source) && typeof entry.completed==='boolean' &&
+    typeof entry.reason==='string' && entry.reason.length<=140 && Number.isFinite(entry.seconds) && entry.seconds>=0 && entry.seconds<=90 &&
+    (entry.mode!=='reaction'||entry.reactionStats===undefined||validReactionStats(entry.reactionStats)) &&
+    (!['memory','freeze'].includes(entry.mode)||entry.bodyStats===undefined||validBodyStats(entry.bodyStats));
+}
+function validBodyStats(s) {
+  return s && typeof s==='object' && !Array.isArray(s) && ['rounds','mistakes'].every(k=>Number.isSafeInteger(s[k])&&s[k]>=0&&s[k]<=1000000);
+}
+function bodyResultLines(s) {return [`完成段落 ${s.rounds} · 失誤 ${s.mistakes}`];}
+function validReactionStats(s) {
+  return s && typeof s==='object' && !Array.isArray(s) && ['correct','wrong','early','missed','totalMs'].every(k=>Number.isSafeInteger(s[k])&&s[k]>=0) &&
+    s.correct<=1000000 && (s.correct===0?s.bestMs===null&&s.totalMs===0:Number.isSafeInteger(s.bestMs)&&s.bestMs>=0&&s.bestMs<2500&&s.totalMs>=s.bestMs*s.correct&&s.totalMs<2500*s.correct);
+}
+function cleanHistoryRound(entry) {
+  const {at,mode,source,score,seconds,completed,reason}=entry;
+  const clean={at,mode,source,score,seconds,completed,reason};
+  if(['memory','freeze'].includes(mode)&&entry.bodyStats!==undefined)clean.bodyStats={rounds:entry.bodyStats.rounds,mistakes:entry.bodyStats.mistakes};
+  if(mode==='reaction' && entry.reactionStats!==undefined) clean.reactionStats=Object.fromEntries(['correct','wrong','early','missed','totalMs','bestMs'].map(key=>[key,entry.reactionStats[key]]));
+  if (mode==='combat') {
+    const normalized=normalizeCombatHistory(entry);
+    if (entry.difficulty!==undefined && normalized.difficulty===undefined ||
+      entry.combatStats!==undefined && normalized.combatStats===undefined ||
+      entry.combatBreakdown!==undefined && normalized.combatBreakdown===undefined) throw Error('備份含無效對戰統計，未修改現有紀錄。');
+    for (const key of ['difficulty','combatStats','combatBreakdown']) if (normalized[key]!==undefined) clean[key]=normalized[key];
+  }
+  return clean;
+}
+function parseHistoryBackup(text) {
+  if (typeof text!=='string' || text.length>262144) throw Error('備份超過 256 KB，未讀入。');
+  let data;
+  try {data=JSON.parse(text.replace(/^\ufeff/,''));} catch (_) {throw Error('無法解析 JSON，請使用匯出的回合備份。');}
+  if (!data || data.version!==1 || !Array.isArray(data.rounds) || data.rounds.length>500) throw Error('備份格式或版本不符，最多接受 500 場。');
+  if (!data.rounds.every(validHistoryRound)) throw Error('備份含無效回合，未修改現有紀錄。');
+  return data.rounds.map(cleanHistoryRound);
+}
+function mergeHistoryBackup(existing,incoming) {
+  // A round's core fields identify it; preserve local details on duplicate backups.
+  const key=entry=>JSON.stringify([entry.at,entry.mode,entry.source,entry.score,entry.seconds,entry.completed,entry.reason]);
+  const seen=new Set(existing.map(key)),added=[];
+  for (const entry of incoming) if (!seen.has(key(entry))) {seen.add(key(entry));added.push({...entry,imported:true});}
+  const merged=[...existing,...added].sort((a,b)=>b.at-a.at),rounds=merged.slice(0,50);
+  return {rounds,added:added.length,duplicates:incoming.length-added.length,dropped:Math.max(0,merged.length-50),
+    existingDropped:existing.filter(entry=>!rounds.includes(entry)).length};
+}
+let pendingHistoryBackup=null,historyImportVersion=0;
+function cancelHistoryBackup(message='已取消還原，現有紀錄未變更。') {
+  historyImportVersion++;pendingHistoryBackup=null;
+  document.getElementById('history-import-file').value='';
+  document.getElementById('history-import-apply').hidden=true;
+  document.getElementById('history-import-cancel').hidden=true;
+  document.getElementById('history-import-status').textContent=message;
+}
+function showHistoryBackupPreview(incoming) {
+  const plan=mergeHistoryBackup(roundHistory,incoming);
+  pendingHistoryBackup={incoming,before:JSON.stringify(roundHistory)};
+  document.getElementById('history-import-status').textContent=`預覽：${incoming.length} 場，新增 ${plan.added} 場，重複 ${plan.duplicates} 場。\n合併後保留最近 ${plan.rounds.length} 場，超出容量 ${plan.dropped} 場（包含現有 ${plan.existingDropped} 場）。\n最佳成績不會變更。`;
+  document.getElementById('history-import-apply').hidden=plan.added===0;
+  document.getElementById('history-import-cancel').hidden=false;
+  return plan;
+}
+async function previewHistoryBackup(file) {
+  cancelHistoryBackup('');
+  if (!file) return;
+  const version=historyImportVersion;
+  try {
+    if (file.size>262144) throw Error('備份超過 256 KB，未讀入。');
+    const incoming=parseHistoryBackup(await file.text());
+    if (version!==historyImportVersion) return;
+    showHistoryBackupPreview(incoming);
+  } catch (error) {
+    if (version===historyImportVersion) cancelHistoryBackup(error.message);
+  }
+}
+function applyHistoryBackup() {
+  if (!pendingHistoryBackup) return false;
+  if (pendingHistoryBackup.before!==JSON.stringify(roundHistory)) {
+    showHistoryBackupPreview(pendingHistoryBackup.incoming);
+    document.getElementById('history-import-status').textContent='現有紀錄已變更，已重新計算預覽，請再次確認。\n'+document.getElementById('history-import-status').textContent;
+    return false;
+  }
+  const plan=mergeHistoryBackup(roundHistory,pendingHistoryBackup.incoming);
+  try {localStorage.setItem(historyStorageKey,JSON.stringify(plan.rounds));}
+  catch (_) {document.getElementById('history-import-status').textContent='瀏覽器無法儲存，尚未還原；現有紀錄未變更。';return false;}
+  roundHistory=plan.rounds;
+  cancelHistoryBackup(`已合併備份，保留最近 ${roundHistory.length} 場；最佳成績未變更。`);
+  renderRoundHistory();return true;
+}
+// Week boundaries are Monday 00:00 in Taiwan, independent of the host timezone.
+function historyInPeriod(at,period,now=Date.now()) {
+  if (period==='all') return true;
+  const offset=8*3600000,day=86400000;
+  const local=new Date(now+offset);
+  const midnight=Date.UTC(local.getUTCFullYear(),local.getUTCMonth(),local.getUTCDate())-offset;
+  const monday=midnight-((local.getUTCDay()+6)%7)*day;
+  const start=period==='last-week'?monday-7*day:monday;
+  return at>=start && at<start+7*day;
+}
+function customHistoryRange(startText,endText) {
+  const dayStart=text=>{
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(text) || text<'1970-01-01') return NaN;
+    const [year,month,day]=text.split('-').map(Number),utc=Date.UTC(year,month-1,day);
+    return Number.isFinite(utc) && new Date(utc).toISOString().slice(0,10)===text?utc-8*3600000:NaN;
+  };
+  const start=dayStart(startText),last=dayStart(endText);
+  if (!Number.isFinite(start)||!Number.isFinite(last)) return {valid:false,message:'請輸入完整的開始與結束日期。'};
+  if (last<start) return {valid:false,message:'結束日期不可早於開始日期。'};
+  return {valid:true,start,end:last+86400000,message:`台灣時間 ${startText} 至 ${endText}，包含起訖當日。`};
+}
+function filteredRoundHistory() {
+  const mode=document.getElementById('history-mode').value,source=document.getElementById('history-source').value;
+  const difficulty=document.getElementById('history-difficulty').value,period=document.getElementById('history-period').value;
+  const origin=document.getElementById('history-origin').value;
+  const range=period==='custom'?customHistoryRange(document.getElementById('history-date-start').value,document.getElementById('history-date-end').value):null;
+  if (range && !range.valid) return [];
+  return roundHistory.filter(entry=>(range?entry.at>=range.start&&entry.at<range.end:historyInPeriod(entry.at,period)) && (mode==='all'||entry.mode===mode) &&
+    (origin==='all'||(entry.imported===true)===(origin==='imported')) &&
+    (source==='all'||entry.source.startsWith(source+':')) &&
+    (difficulty==='all'||entry.mode==='combat' && (difficulty==='unknown'?!['easy','normal','hard'].includes(entry.difficulty):entry.difficulty===difficulty)));
+}
+function renderTrainingSummary(entries) {
+  const labels={demo:'示範',live:'即時',mixed:'混合'},lines=[];
+  for (const [source,label] of Object.entries(labels)) {
+    const rounds=entries.filter(entry=>entry.source.startsWith(source+':'));
+    if (!rounds.length) continue;
+    const completed=rounds.filter(entry=>entry.completed).length;
+    const seconds=rounds.reduce((sum,entry)=>sum+entry.seconds,0);
+    lines.push(`${label}：${rounds.length} 場，完成 ${completed} 場，中斷 ${rounds.length-completed} 場，${(seconds/60).toFixed(1)} 分鐘`);
+  }
+  document.getElementById('history-training-summary').textContent=(lines.length?lines.join('\n'):'此範圍沒有紀錄。')+(entries.length?'\n保留此瀏覽器最近 50 場。':'');
+  const imported=entries.filter(entry=>entry.imported===true).length;
+  if (imported) document.getElementById('history-training-summary').textContent+=`\n包含 ${imported} 場備份匯入；輸入來源為檔案自述。`;
+  document.getElementById('history-csv-export').disabled=!entries.length;
+}
+function historyCsv(entries) {
+  const cell=value=>{let text=String(value??'');if (/^[\s]*[=+@-]/.test(text)) text="'"+text;return '"'+text.replace(/"/g,'""')+'"';};
+  const rows=[['時間（台灣）','遊戲','輸入來源','分數','秒數','完成','原因','紀錄取得方式']];
+  for (const entry of entries) rows.push([new Date(entry.at+8*3600000).toISOString().slice(0,19).replace('T',' '),
+    entry.mode==='combat'?'機器人對戰':poseGameNames[entry.mode],entry.source,entry.score,entry.seconds,entry.completed?'是':'否',reasonText(entry.reason),entry.imported===true?'備份匯入':'本機／舊紀錄']);
+  return '\ufeff'+rows.map(row=>row.map(cell).join(',')).join('\r\n')+'\r\n';
+}
+function exportFilteredHistoryCsv() {
+  const entries=filteredRoundHistory();
+  if (!entries.length) return false;
+  const url=URL.createObjectURL(new Blob([historyCsv(entries)],{type:'text/csv;charset=utf-8'}));
+  const link=document.createElement('a');link.href=url;link.download='aetherpose-filtered-rounds.csv';
+  document.body.appendChild(link);
+  try {link.click();} finally {link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+  return true;
+}
 function combatHistoryTotals(entries) {
   const totals={rounds:0,attempts:0,hits:0,defenses:0,counters:0,received:0,bestCombo:0};
   for (const entry of entries) {
@@ -88,7 +282,7 @@ function combatHistoryTotals(entries) {
 function renderRoundHistory() {
   const modeSelect=document.getElementById('history-mode');
   if (modeSelect.options.length===1) {
-    for (const [mode,name] of Object.entries({combat:'Aether Combat',...poseGameNames})) {
+    for (const [mode,name] of Object.entries({combat:'機器人對戰',...poseGameNames})) {
       const option=document.createElement('option'); option.value=mode; option.textContent=name; modeSelect.add(option);
     }
   }
@@ -98,10 +292,12 @@ function renderRoundHistory() {
   document.getElementById('history-difficulty-controls').hidden=!combatFilter;
   if (!combatFilter) difficultySelect.value='all';
   const difficulty=difficultySelect.value;
-  const filtered=roundHistory.filter(entry=>(modeSelect.value==='all'||entry.mode===modeSelect.value) &&
-    (source==='all'||entry.source.startsWith(source+':')) &&
-    (difficulty==='all'||entry.mode==='combat' && (difficulty==='unknown'?!['easy','normal','hard'].includes(entry.difficulty):entry.difficulty===difficulty)));
-  const filtering=modeSelect.value!=='all' || source!=='all' || difficulty!=='all';
+  const period=document.getElementById('history-period').value;
+  document.getElementById('history-date-controls').hidden=period!=='custom';
+  document.getElementById('history-date-status').textContent=period==='custom'?customHistoryRange(document.getElementById('history-date-start').value,document.getElementById('history-date-end').value).message:'';
+  const filtered=filteredRoundHistory();
+  renderTrainingSummary(filtered);
+  const filtering=period!=='all' || document.getElementById('history-origin').value!=='all' || modeSelect.value!=='all' || source!=='all' || difficulty!=='all';
   const totals=combatHistoryTotals(filtered),summary=document.getElementById('history-combat-summary');
   summary.hidden=totals.rounds===0;
   summary.textContent=totals.rounds?`目前篩選 · 有統計的完成對戰 ${totals.rounds} 場 · 命中 ${totals.hits}/${totals.attempts}（${totals.attempts?Math.round(totals.hits/totals.attempts*100):0}%） · 防守 ${totals.defenses} · 反擊 ${totals.counters} · 受擊 ${totals.received} · 最高連擊 ${totals.bestCombo}`:'';
@@ -116,7 +312,13 @@ function renderRoundHistory() {
     const actions=document.createElement('div'); actions.style.cssText='display:flex;flex-wrap:wrap;gap:6px;margin-top:6px';
     row.style.cssText='padding:8px 0;border-bottom:1px solid var(--border);line-height:1.6';
     const source=entry.source==='demo:0'?'示範':entry.source==='live:6'?'即時':`混合 ${entry.source.split(':')[1]}/6`;
-    row.textContent=`${entry.mode==='combat'?'Aether Combat':poseGameNames[entry.mode]} · ${entry.score} 分 · ${source} · ${entry.seconds} 秒 · ${entry.completed?'完成':'中斷'} — ${reasonText(entry.reason)} · ${new Date(entry.at).toLocaleString()}`;
+    row.textContent=`${entry.mode==='combat'?'機器人對戰':poseGameNames[entry.mode]} · ${entry.score} 分 · ${source} · ${entry.seconds} 秒 · ${entry.completed?'完成':'中斷'} — ${reasonText(entry.reason)} · ${new Date(entry.at).toLocaleString()}${entry.imported===true?' · 備份匯入':''}`;
+    if(['memory','freeze'].includes(entry.mode)&&validBodyStats(entry.bodyStats)){
+      const detail=document.createElement('div');detail.className='hint';detail.textContent=bodyResultLines(entry.bodyStats).join(' · ');row.append(detail);
+    }
+    if(entry.mode==='reaction' && validReactionStats(entry.reactionStats)) {
+      const detail=document.createElement('div');detail.className='hint';detail.textContent=reactionResultLines(entry.reactionStats).slice(0,2).join(' · ');row.appendChild(detail);
+    }
     if (entry.mode==='combat') {
       const normalized=normalizeCombatHistory(entry),stats=normalized.combatStats;
       if (stats || normalized.difficulty) {
@@ -135,11 +337,11 @@ function renderRoundHistory() {
     }
     const replay=document.createElement('button'); replay.type='button'; replay.className='btn';
     replay.textContent='選回這款遊戲'; replay.dataset.historyGame=entry.mode;
-    replay.setAttribute('aria-label',`選回 ${entry.mode==='combat'?'Aether Combat':poseGameNames[entry.mode]}`);
+    replay.setAttribute('aria-label',`選回 ${entry.mode==='combat'?'機器人對戰':poseGameNames[entry.mode]}`);
     replay.addEventListener('click',()=>selectRecordedGame(entry.mode));
     const download=document.createElement('button'); download.type='button'; download.className='btn'; download.textContent='匯出本回合';
     download.dataset.historyExport=entry.mode;
-    download.setAttribute('aria-label',`匯出 ${entry.mode==='combat'?'Aether Combat':poseGameNames[entry.mode]} 回合紀錄`);
+    download.setAttribute('aria-label',`匯出 ${entry.mode==='combat'?'機器人對戰':poseGameNames[entry.mode]} 回合紀錄`);
     download.addEventListener('click',()=>exportSingleRound(entry));
     actions.append(replay,download); row.appendChild(actions);
     list.appendChild(row);
@@ -192,7 +394,7 @@ function exportSingleRound(entry) {
 renderRoundHistory();
 const poseRecordKey='aetherpose.game-records.v1';
 // Best scores per game and input source; only these keys are kept.
-const RECORD_KEY=/^(reach|squat|balance|dodge|sky|clap|march|star|cross|guard|shoulder|highfive|bow|combat):(demo:0|live:6|mixed:[1-6])$/;
+const RECORD_KEY=/^(reach|squat|balance|dodge|sky|clap|march|star|cross|guard|shoulder|highfive|bow|reaction|memory|freeze|combat):(demo:0|live:6|mixed:[1-6])$/;
 function loadPoseRecords() {
   try {
     const saved=JSON.parse(localStorage.getItem(poseRecordKey)||'{}');
@@ -235,8 +437,12 @@ function savePoseBest() { saveBestScore(game.mode,game.source.signature,game.sco
 function changePoseGame() {
   if (game.state==='playing') endGame('Game changed');
   const mode=document.getElementById('game-mode').value;
+  setCombatMode(mode==='combat');
   if (poseCircuit && mode!==poseCircuit.modes[poseCircuit.index]) { poseCircuit=null; renderPoseCircuit(); }
   updateGameLibrary();
+  dismissRoundResult();
+  if(mode==='combat') { document.getElementById('pose-game-cue').textContent=''; return; }
+  document.getElementById('game-btn').style.display='inline-block';
   document.getElementById('game-btn').textContent=`開始 ${poseGameNames[mode]}`;
   document.getElementById('library-start').textContent=`開始 ${poseGameNames[mode]}`;
   document.getElementById('pose-game-cue').textContent=mode==='reach'?'伸手碰觸黃色目標。':
@@ -250,6 +456,9 @@ function changePoseGame() {
     mode==='highfive'?'用提示的那隻手碰高處的目標，再放下那隻手。':mode==='shoulder'?'雙手交叉碰到對側肩膀保持 0.6 秒，再放開雙手。':
     mode==='cross'?'用右手碰抬起的左膝，再換邊；每次之間先站好並放開。':
     mode==='star'?'雙臂伸直平舉到肩膀高度，再放下雙手準備下一次。':
+    mode==='memory'?'記住提示的順序，再依序完成動作。':
+    mode==='freeze'?'綠燈交替抬腳，紅燈全身停住。':
+    mode==='reaction'?'放下雙手等待燈號，再舉起對應的手。':
     '雙手舉過頭接住目標，再放下雙手準備下一次。';
 }
 let audioCtx = null;
@@ -312,27 +521,58 @@ function updateReachEffects(now) {
   }
 }
 
+const scoreGoalKey='aetherpose.score-goal.v1';
+function readScoreGoal() {
+  const raw=document.getElementById('pose-score-goal').value.trim(),value=Number(raw);
+  return raw!=='' && Number.isInteger(value) && value>=0 && value<=1000?value:null;
+}
+function saveScoreGoal() {
+  const goal=readScoreGoal(),status=document.getElementById('pose-score-goal-status');
+  if (goal===null) {status.textContent='請填 0 至 1000 的整數。';return false;}
+  try {localStorage.setItem(scoreGoalKey,String(goal));status.textContent=goal?`下一回合目標 ${goal} 分，達標後繼續至時間結束。`:'下一回合不設定分數目標。';}
+  catch (_) {status.textContent='本次可用此目標，瀏覽器無法保存。';}
+  return true;
+}
+function loadScoreGoal() {
+  try {const raw=localStorage.getItem(scoreGoalKey),value=Number(raw);if(raw!==null&&Number.isInteger(value)&&value>=0&&value<=1000) document.getElementById('pose-score-goal').value=String(value);}catch (_) {}
+}
+function renderScoreGoal() {
+  const node=document.getElementById('game-goal-progress');node.hidden=!(game.goal>0);
+  if (!(game.goal>0)) return;
+  node.textContent=`目標 ${game.score} / ${game.goal}${game.score>=game.goal?' ✓ 達成':''}`;
+  if (game.state==='playing' && !game.calibrating && !game.paused && game.sourceLostAt==null && game.score>=game.goal && !game.goalReached) {
+    game.goalReached=true;flashRoundSplash('目標達成！');playNotes([784,988,1175],.08,.15);
+  }
+}
 function startGame() {
+  if(document.getElementById('game-mode').value==='combat') {
+    if(document.hidden)return;
+    selectTab('games');
+    dismissRoundResult();
+    AetherCombat.startRound();
+    syncSelectedGameControls();
+    return;
+  }
   if (poseCircuit?.waiting || poseCircuit?.finished) { poseCircuit=null; renderPoseCircuit(); }
-  const source=aetherPoseSource(bridgeStatus).kind;
-  if (combatMode || document.hidden) return;
-  let unavailable='';
-  if (meshWs?.readyState !== WebSocket.OPEN) unavailable='姿態服務沒有連線：請用 run.ps1 啟動服務，頁面會自動重新連線。';
-  else if (source==='error') unavailable='姿態推論錯誤：'+bridgeStatus.replace(/^(Error|Infer err):\s*/,'');
-  else if (bridgeStatus && source==='waiting') unavailable='等待姿態模型與追蹤資料。';
-  else if (!avatar.fresh()) unavailable='等待完整的最新姿態，請檢查追蹤連線。';
-  else unavailable=aetherCalibrationIssue(bridgeStatus,bodyCalibrationPhase);
-  if (unavailable) { document.getElementById('pose-game-cue').textContent=unavailable; return; }
+  if(combatMode)return;
+  const goal=readScoreGoal()??0;
+  poseContinuity.clear();game.rebaseOnNextPose=false;
+  game.goal=goal;game.goalReached=false;
+  game.bodyGame=BodyGames.create(document.getElementById('game-mode').value);
+  game.reaction=ReactionGame.create();document.getElementById('reaction-hud').hidden=document.getElementById('game-mode').value!=='reaction';
+  document.querySelectorAll('[data-reaction-lamp]').forEach(lamp=>lamp.classList.remove('on'));
+  document.getElementById('reaction-message').textContent='先完成站姿校準，再放下雙手準備。';
+  document.getElementById('reaction-stats').textContent='';
   game.state = 'playing';
   game.paused=false;
   game.mode=document.getElementById('game-mode').value;
   game.source=aetherPoseSource(bridgeStatus);
+  game.inputSignature=game.source.signature;
   const joints=avatar.joints;
-  game.standingHeight=joints[15][1]-Math.min(joints[10][1],joints[11][1]);
+  game.standingHeight=1.7;game.standingHip=.9;captureStandingBaseline(joints);
   game.calibrating=game.mode!=='reach'; game.readyHold=0; game.readyHeight=null; game.calibrationSince=performance.now();
   if (!game.calibrating) flashRoundSplash('開始！');
   game.sourceLostAt=null;
-  game.standingHip=joints[0][1]-Math.min(joints[10][1],joints[11][1]);
   game.phase='lower'; game.hold=0; game.sampleAt=performance.now(); game.foot=10;
   game.dodgeSide=-1; game.needsCenter=false;
   game.clapOpened=false;
@@ -352,8 +592,8 @@ function startGame() {
     m.visible=false;
     if (game.mode==='reach') {
       const position=spawnTargetPos();
-      if (!position) { endGame('Reach area blocked — move scene objects away'); return; }
-      m.position.copy(position); m.visible=true;
+      m.userData.available=Boolean(position);
+      if(position){m.position.copy(position);m.visible=true;}
     }
   }
   document.getElementById('pose-game-cue').textContent=game.mode==='reach'?'伸手碰觸黃色目標。':'雙腳踩平、站直 1 秒完成校準。';
@@ -365,32 +605,19 @@ function startGame() {
   document.getElementById('game-stats').style.display = 'flex';
   document.getElementById('game-result').style.display = 'none';
   renderGameStats();
+  refreshPoseContinuity();
+  syncSelectedGameControls();
 }
 
-// A tracker dropping out for a moment (Bluetooth) changes the pose source. The
-// round freezes for up to SOURCE_GRACE_MS: it continues if the source comes back,
-// otherwise it ends. The wait does not cost round time.
-const SOURCE_GRACE_MS = 1500;
 function trackPoseSource(source) {
-  const now = performance.now();
-  if (source.signature !== game.source.signature) {
-    if (game.sourceLostAt != null) return;
-    game.sourceLostAt = now;
-    document.getElementById('pose-game-cue').textContent = '追蹤中斷，等待恢復…';
-  } else if (game.sourceLostAt != null) {
-    if (!game.paused) game.deadline += now - game.sourceLostAt;
-    game.sourceLostAt = null; game.hold = 0; game.sampleAt = now; game.readyHold = 0; game.readyHeight = null;
-    document.getElementById('pose-game-cue').textContent = '追蹤恢復，繼續。';
-  }
+  if(source.signature!==game.inputSignature)resetPoseGesture();
+  game.inputSignature=source.signature;
+  game.source=aetherMergeRoundSource(game.source,source);
   renderGameStats();
 }
 function updateReachClock(now) {
   if (game.state !== 'playing') return;
-  if (game.sourceLostAt != null) {
-    if (now - game.sourceLostAt > SOURCE_GRACE_MS) endGame('Pose source changed');
-    return;
-  }
-  if (game.calibrating || game.paused) return;
+  if(refreshPoseContinuity(now)||game.calibrating)return;
   const remaining = Math.max(0, Math.ceil((game.deadline-now)/1000));
   if (remaining !== game.timeLeft) { game.timeLeft=remaining; renderGameStats(); }
   if (now >= game.deadline) endGame();
@@ -399,6 +626,7 @@ function updateReachClock(now) {
 // ── round presentation ──────────────────────────────────────────────────
 function sourceLabelOf(signature) {
   const [kind,count]=String(signature).split(':');
+  if(!['live','mixed','demo'].includes(kind))return '等待追蹤';
   return kind==='live'?'即時動作捕捉':kind==='mixed'?`混合輸入（即時 ${count}/6）`:'示範資料';
 }
 function flashRoundSplash(text, high=false) {
@@ -450,18 +678,24 @@ new MutationObserver(()=>{
 }).observe(document.getElementById('pose-game-cue'),{childList:true,characterData:true,subtree:true});
 function endGame(reason="Time's up") {
   if (game.state!=='playing') return;
+  const heldAt=poseContinuity.since===null?performance.now():poseContinuity.since*1000;
+  poseContinuity.clear();
   game.sourceLostAt=null;
   const completed=reason==="Time's up" && !game.calibrating;
   const previousBest=poseBest();
-  const playedAt=game.paused?game.pausedAt:performance.now();
+  const playedAt=heldAt;
   recordRoundHistory({mode:game.mode,score:game.score,source:game.source.signature,completed,reason,
+    ...(['memory','freeze'].includes(game.mode)?{bodyStats:{rounds:game.bodyGame.round,mistakes:game.bodyGame.mistakes}}:{}),
+    ...(game.mode==='reaction'?{reactionStats:Object.fromEntries(['correct','wrong','early','missed','totalMs','bestMs'].map(key=>[key,game.reaction[key]]))}:{}),
     seconds:game.calibrating?0:Math.round(Math.min(GAME_DURATION_S,Math.max(0,(playedAt-game.deadline)/1000+GAME_DURATION_S)))});
   if (completed) savePoseBest();
   game.state = 'over';
+  document.getElementById('reaction-hud').hidden=true;
   updateReachEffects(performance.now()/1000);
   targetMeshes.forEach(m => { m.visible = false; });
   showRoundResult({title:poseGameNames[game.mode],score:game.score,sourceLabel:game.source.label,reason,completed,
     best:completed?poseBest():null,newRecord:completed && game.score>previousBest && game.score>0,
+    details:[...(['memory','freeze'].includes(game.mode)?bodyResultLines({rounds:game.bodyGame.round,mistakes:game.bodyGame.mistakes}):[]),...(game.goal>0?[`目標 ${game.goal} 分：${game.score>=game.goal?'已達成':'尚未達成'}（${game.score} / ${game.goal}）`]:[]),...(game.mode==='reaction'?reactionResultLines():[])],
     again:()=>startGame()});
   if (completed) { flashRoundSplash('時間到！',true); AetherCombat.cheer('end'); }
   sceneEnvironment.setScoreboard({title:poseGameNames[game.mode].toUpperCase(),value:String(game.score),sub:completed?'完成':'中斷'});
@@ -476,23 +710,25 @@ function endGame(reason="Time's up") {
   game.paused=false;
   document.getElementById('pose-game-cue').textContent='';
   document.getElementById('pose-ready').hidden=true;
+  syncSelectedGameControls();
 }
 
 function renderGameStats() {
+  renderScoreGoal();
   const score = document.getElementById('game-score');
   if (score.textContent !== String(game.score)) {
     if (game.score > 0) { score.classList.remove('bump'); void score.offsetWidth; score.classList.add('bump'); AetherCombat.cheer('score'); }
     score.textContent = String(game.score);
   }
   document.getElementById('game-combo').textContent = game.combo > 1 ? `${game.combo} 連擊` : '';
-  document.getElementById('game-time').textContent = game.sourceLostAt!=null?'等待追蹤':game.paused?'已暫停':game.calibrating?'校準中':`${game.timeLeft} 秒`;
+  document.getElementById('game-time').textContent = game.paused?'已暫停':game.sourceLostAt!=null?'等待恢復':game.calibrating?'校準中':`${game.timeLeft} 秒`;
   const readiness=document.getElementById('pose-ready');
   readiness.hidden=game.state!=='playing' || !game.calibrating;
   readiness.value=Math.min(100,Math.round((game.readyHold||0)*100));
   document.getElementById('game-best').textContent=String(poseBest());
   // The hall's scoreboard shows the running round too.
   if (game.state==='playing') sceneEnvironment.setScoreboard({title:poseGameNames[game.mode].toUpperCase(),value:String(game.score),
-    sub:game.sourceLostAt!=null?'追蹤中斷…':game.paused?'暫停':game.calibrating?'校準中':`剩 ${game.timeLeft} 秒`});
+    sub:game.paused?'暫停':game.sourceLostAt!=null?'等待恢復':game.calibrating?'校準中':`剩 ${game.timeLeft} 秒`});
 }
 
 function updateGame(joints) {
@@ -505,10 +741,11 @@ function updateGame(joints) {
   let blockedReach=false;
   targetMeshes.forEach(m => {
     if (game.state!=='playing') return;
-    if (scenePhysics.pointBlocked(m.position,.07)) {
+    if (!m.userData.available||scenePhysics.pointBlocked(m.position,.07)) {
       const replacement=spawnTargetPos(hands);
-      if (!replacement) { endGame('Reach area blocked — move scene objects away'); return; }
-      m.position.copy(replacement); return;
+      m.userData.available=Boolean(replacement);m.visible=Boolean(replacement);
+      if(replacement)m.position.copy(replacement);
+      return;
     }
     const nearby=hands.filter(hand=>hand.distanceTo(m.position)<HIT_RADIUS);
     const canReach=nearby.some(hand=>!scenePhysics.stats.enabled || !scenePhysics.segmentBlocked(hand,m.position,.06*Math.abs(avatar.root.scale.x)));
@@ -520,8 +757,8 @@ function updateGame(joints) {
       game.score += game.combo;
       beep(520 + Math.min(game.combo, 10) * 40);
       const replacement=spawnTargetPos(hands);
-      if (!replacement) { endGame('Reach area blocked — move scene objects away'); return; }
-      m.position.copy(replacement);
+      m.userData.available=Boolean(replacement);m.visible=Boolean(replacement);
+      if(replacement)m.position.copy(replacement);
       renderGameStats();
     }
   });
@@ -542,19 +779,43 @@ function toggleGamePause() {
     targetMeshes.forEach(m=>m.visible=false);
     document.getElementById('pose-game-cue').textContent='已暫停，準備好後按「繼續」。';
   } else {
-    if (!avatar.fresh()) { endGame('Pose data expired'); return; }
-    game.deadline+=now-game.pausedAt;
     game.paused=false; game.sampleAt=now; game.hold=0; game.readyHold=0; game.readyHeight=null; game.calibrationSince=now;
+    if(game.bodyGame) BodyGames.interrupt(game.bodyGame);
+    if(game.mode==='reaction') ReactionGame.reset(game.reaction);
     game.combo=0; game.lastHitAt=-Infinity;
     targetMeshes.forEach(m=>m.visible=game.mode==='reach');
     document.getElementById('pose-game-cue').textContent=game.calibrating?'雙腳踩平、站直 1 秒完成校準。':'已繼續，請跟著下一個目標或提示動作。';
     renderGameStats();
   }
+  refreshPoseContinuity(now);
   const button=document.getElementById('game-pause');
   renderGameStats();
   button.textContent=game.paused?'繼續':'暫停'; button.setAttribute('aria-pressed',String(game.paused));
+  if(game.mode==='reaction') {
+    document.getElementById('reaction-hud').hidden=game.paused;
+    document.querySelectorAll('[data-reaction-lamp]').forEach(lamp=>lamp.classList.remove('on'));
+    document.getElementById('reaction-message').textContent=game.reaction.message;
+  }
 }
 
+function reactionResultLines(r=game.reaction) {
+  if (!r) return [];
+  return [`正確 ${r.correct} · 錯手 ${r.wrong} · 搶先 ${r.early} · 超時 ${r.missed}`,
+    r.correct?`系統觀測反應：平均 ${Math.round(r.totalMs/r.correct)} ms · 最快 ${r.bestMs} ms`:'尚無正確反應樣本',
+    '包含感測、推論及傳輸延遲，非標準人體反應時間測驗。'];
+}
+function updateReactionGame(joints,now) {
+  const left=joints[20][1]-joints[16][1],right=joints[21][1]-joints[17][1];
+  const event=ReactionGame.step(game.reaction,{raised:(left>.15?1:0)|(right>.15?2:0),neutral:left<-.1&&right<-.1},now);
+  if(event?.kind==='correct') {game.score++;beep(880);}
+  else if(event && event.kind!=='signal') beep(220,.08);
+  const r=game.reaction;
+  document.getElementById('reaction-hud').hidden=false;
+  document.querySelectorAll('[data-reaction-lamp]').forEach(lamp=>lamp.classList.toggle('on',r.phase==='signal'&&Number(lamp.dataset.reactionLamp)===r.target));
+  document.getElementById('reaction-message').textContent=r.message;
+  document.getElementById('reaction-stats').textContent=reactionResultLines().slice(0,2).join(' · ');
+  document.getElementById('pose-game-cue').textContent=r.message;renderGameStats();
+}
 function updatePoseChallenge(joints,now) {
   const elapsed=now-game.sampleAt;
   game.sampleAt=now;
@@ -572,12 +833,10 @@ function updatePoseChallenge(joints,now) {
     const reason=height<=.8 || height>=2.4 || hipHeight/height<=.48?'請站直。':
       lean>=.2?'頭部要在骨盆正上方。':Math.abs(joints[10][1]-joints[11][1])>=.08?'雙腳要踩平。':
       !dt?'等待更穩定的姿態更新。':!stable?'保持站立高度穩定。':'保持這個站姿。';
-    // Demo playback never stands still, so say why calibration may not finish.
-    const demoStuck=game.source?.kind==='demo' && now-game.calibrationSince>DEMO_CALIBRATION_HINT_MS;
-    document.getElementById('pose-game-cue').textContent=`${reason}校準 ${Math.min(100,Math.round(game.readyHold*100))}%`+
-      (demoStuck?'。示範資料的動作不會停下來，可能無法完成校準；戴上追蹤器再玩。':'');
-    if (game.readyHold+1e-6>=1) {
+    document.getElementById('pose-game-cue').textContent=`${reason}正在對齊動作…`;
+    if (game.readyHold+1e-6>=1 || now-game.calibrationSince>=2500) {
       game.calibrating=false; game.standingHeight=height; game.standingHip=hipHeight;
+      captureStandingBaseline(joints);
       flashRoundSplash('開始！');
       game.standingHeadOffset=new THREE.Vector3(...joints[15]).sub(new THREE.Vector3(...joints[0]));
       game.standingChestOffset=new THREE.Vector3(...joints[9]).sub(new THREE.Vector3(...joints[0]));
@@ -588,6 +847,12 @@ function updatePoseChallenge(joints,now) {
     renderGameStats(); return;
   }
   let valid=false;
+  if (game.mode==='memory'||game.mode==='freeze') {
+    game.score+=BodyGames.step(game.bodyGame,joints,now,game.standingHeight,game.standingHip);
+    document.getElementById('pose-game-cue').textContent=game.bodyGame.message;
+    renderGameStats();return;
+  }
+  if (game.mode==='reaction') {updateReactionGame(joints,now);return;}
   if (game.mode==='dodge') { updateDodgeChallenge(joints,dt); return; }
   if (game.mode==='sky') { updateSkyChallenge(joints,dt); return; }
   if (game.mode==='clap') { updateClapChallenge(joints,dt); return; }

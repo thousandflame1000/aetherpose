@@ -1,0 +1,29 @@
+"""Generate the exact printable targets used by the camera anchor (100% scale)."""
+from pathlib import Path
+import argparse
+import cv2 as cv
+import numpy as np
+
+
+def generate(folder):
+    folder.mkdir(parents=True,exist_ok=True)
+    dictionary=cv.aruco.getPredefinedDictionary(cv.aruco.DICT_4X4_50)
+    for marker in (0,1):
+        image=cv.aruco.generateImageMarker(dictionary,marker,1200)
+        if not cv.imwrite(str(folder/f'marker-{marker}.png'),image):raise RuntimeError('Cannot write marker')
+    board=np.full((1750,2500),255,np.uint8)
+    for y in range(7):
+        for x in range(10):
+            if (x+y)%2==0:board[y*250:(y+1)*250,x*250:(x+1)*250]=0
+    cv.imwrite(str(folder/'lens-checkerboard.png'),board)
+    (folder/'print.html').write_text('''<!doctype html><html lang="zh-Hant"><meta charset="utf-8"><title>Aetherpose 相機定位列印板</title>
+<style>@page{size:A4 landscape;margin:12mm}body{font:14px system-ui;margin:0;color:#000;background:white}.page{break-after:page}.markers{display:flex;gap:15mm}.marker{width:120mm}.marker img{display:block;width:120mm;height:120mm}.label{margin:0 0 3mm;font-size:16px}.board img{width:250mm;height:175mm;display:block}.board p{margin:2mm 0;font-size:10px}.ruler{width:100mm;border-top:1mm solid black;margin-top:5mm;font-size:11px}@media screen{body{padding:16px}.page{margin-bottom:40px}}</style>
+<section class="page"><h2>相機位置定位標記｜兩張黑框外邊長均為 120 mm</h2><p>列印請選 A4 橫式、100%／實際大小，關閉符合頁面與頁首頁尾。用尺量黑框外邊長，實際尺寸填進程式。不要裁掉黑框，周圍保留白邊。</p><div class="markers"><div class="marker"><p class="label">ID 0：固定地面參考板</p><img src="marker-0.png" alt="ArUco ID 0"></div><div class="marker"><p class="label">ID 1：固定於腰帶硬底座</p><img src="marker-1.png" alt="ArUco ID 1"></div></div><div class="ruler">這條黑線應為 100 mm；標記為 DICT_4X4_50。</div></section>
+<section class="board"><img src="lens-checkerboard.png" alt="9×6 內角點校正棋盤"><p>9×6 內角點／10×7 格，每格應為 25 mm，整片為 250×175 mm。相機開啟後，從不同位置、傾斜角度收集至少 12 張；棋盤固定在平板上。</p></section></html>''',encoding='utf-8')
+
+
+if __name__=='__main__':
+    parser=argparse.ArgumentParser()
+    parser.add_argument('--out',type=Path,default=Path(__file__).resolve().parents[1]/'webui'/'camera-targets')
+    generate(parser.parse_args().out)
+    print('Generated ID 0 / ID 1 markers and the 9x6 calibration print page.')

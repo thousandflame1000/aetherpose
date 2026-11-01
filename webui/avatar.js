@@ -53,15 +53,19 @@ window.aetherCalibrationIssue = (status, phase) => {
   if (phase==='requested') return '已送出身體校正要求：等待姿態服務回應後再開始回合。';
   if (['tpose_ready','tpose','bow_ready','bow'].includes(phase))
     return '身體校正進行中：完成校正後再開始回合。';
-  const kind=aetherPoseSource(status).kind;
-  if ((kind==='live' || kind==='mixed') && status.includes('uncalibrated'))
-    return '即時追蹤器尚未校正：請先到「準備」完成「校正身體」，再開始回合。';
   return '';
 };
 window.aetherPoseSource = status => {
   const text = typeof status === 'string' ? status : '';
   if (text.startsWith('Error') || text.startsWith('Infer err:'))
     return {kind:'error',label:'推論錯誤',signature:'error'};
+  const hybrid=/\b(HYBRID|PARTIAL) imu=(\d+) camera=([01]) gp=([01])/.exec(text);
+  if(hybrid){
+    const [,mode,n,camera,gp]=hybrid;
+    return {kind:mode==='HYBRID'?'live':'waiting',label:mode==='PARTIAL'?'部分追蹤（遊戲暫停）':
+      `${gp==='1'?'GlobalPose＋':''}${camera==='1'?'影像骨架＋':''}${n} 顆 IMU`,
+      signature:`hybrid:${n}:${camera}:${gp}:${mode}`};
+  }
   if (text.includes('LIVE 6/6'))
     return {kind:'live',label:'即時動作捕捉',signature:'live:6'};
   if (text.includes('DEBUG')) {
@@ -73,6 +77,35 @@ window.aetherPoseSource = status => {
   return {kind:'waiting',label:text.startsWith('Loading') || text.startsWith('Ready') ?
     '初始化中…' : '等待姿態',signature:'waiting'};
 };
+
+// A round survives recoverable interruptions. Overlapping waits count once.
+window.createAetherContinuity = onResume => {
+  let since=null, messages=[];
+  return {
+    update(reasons,at=performance.now()/1000) {
+      messages=reasons.filter(Boolean);
+      if(messages.length && since===null) since=at;
+      else if(!messages.length && since!==null) {
+        const duration=Math.max(0,at-since);since=null;onResume(duration);
+      }
+      return since!==null;
+    },
+    clear(){since=null;messages=[];},
+    get held(){return since!==null;},get since(){return since;},get message(){return messages[0]||'';}
+  };
+};
+// Conservatively label rounds that used more than one input source.
+window.aetherMergeRoundSource = (current,next) => {
+  if(!['demo','mixed','live'].includes(next?.kind))return current||next;
+  if(!['demo','mixed','live'].includes(current?.kind))return next;
+  if(current.signature===next.signature)return current;
+  if(current.kind==='demo'||next.kind==='demo')return {kind:'demo',label:'含示範資料',signature:'demo:0'};
+  if(current.signature.startsWith('hybrid:')||next.signature.startsWith('hybrid:'))
+    return {kind:'live',label:'即時融合（配置曾變更）',signature:'hybrid:changed'};
+  const count=Math.min(Number(current.signature.split(':')[1]),Number(next.signature.split(':')[1]));
+  return {kind:'mixed',label:`混合輸入（即時 ${count}/6）`,signature:'mixed:'+count};
+};
+window.aetherDisplayLost=false;
 
 // One pose, mesh and skeleton for every activity in the shared scene.
 window.createAetherAvatar = (scene) => {
@@ -87,10 +120,14 @@ window.createAetherAvatar = (scene) => {
   const validPoint = p => Array.isArray(p) && p.length === 3 && p.every(Number.isFinite);
   let mesh = null, skeleton = null, faces = null, maxIndex = -1;
   let target = null, current = null, joints = null;
+  let poseFollower=null;
   let jointAt = -Infinity, meshAt = -Infinity;
   let combatMode = false;
+  let facingYaw = 0;
+  const horizontalOrigin = new THREE.Vector3();
   let physics=null;
   const anchor = new THREE.Vector3();
+  let cameraPosition=null;
   const fresh = (t = performance.now() / 1000) => joints !== null && t - jointAt < 5;
 
   function onFaces(input) {
@@ -105,6 +142,7 @@ window.createAetherAvatar = (scene) => {
     maxIndex = highest;
     if (mesh) { root.remove(mesh); mesh.geometry.dispose(); mesh.material.dispose(); mesh = null; }
     current = target = null;
+    poseFollower=null;
     meshAt = -Infinity;
     return true;
   }
@@ -150,9 +188,10 @@ window.createAetherAvatar = (scene) => {
   // Meshes come with every pose (about 45 a second): the previous target is refilled for the
   // one after next instead of allocating a new array each time.
   let spare = null;
-  function onVertsFlat(input) {
+  function onVertsFlat(input,fromPose=false) {
     if (!faces || !input || input.length % 3 || input.length / 3 <= maxIndex ||
       !input.every(Number.isFinite)) return false;
+    if(!fromPose)poseFollower=null;
     const next = spare && spare.length === input.length ? spare : new Float32Array(input.length);
     next.set(input);
     if (!next.every(Number.isFinite)) return false;  // beyond float32 range
@@ -186,12 +225,17 @@ window.createAetherAvatar = (scene) => {
   let skin = null, skinned = null;
   function onSkin(input) {
     skin = smplSkinning.load(input);
+    poseFollower=null;
     skinned = skin && new Float32Array(skin.count * 3);
     return skin !== null;
   }
   function onPose(input) {
+    const follower=poseFollower||createCausalPoseFollower();
+    if(!skin||!follower.push(input))return false;
     const verts = skin && input ? smplSkinning.pose(skin, input.rotations, input.translation, skinned) : null;
-    return verts !== null && onVertsFlat(verts);
+    const accepted=verts!==null&&onVertsFlat(verts,true);
+    if(accepted)poseFollower=follower;
+    return accepted;
   }
 
   function onJoints(input) {
@@ -199,8 +243,8 @@ window.createAetherAvatar = (scene) => {
     joints = input.map(p => p.slice());
     jointAt = performance.now() / 1000;
     paintOutfit();
-    if (combatMode) {
-      anchor.set(joints[0][0],0,joints[0][2]);
+    if (combatMode || cameraPosition) {
+      if(combatMode)anchor.set(joints[0][0],0,joints[0][2]);
       applyTransform();
     }
     // Packet-time gameplay consumes the root immediately after onJoints.
@@ -233,22 +277,25 @@ window.createAetherAvatar = (scene) => {
 
   function tick(dt, t) {
     applyTransform();
-    root.visible = fresh(t);
-    if (physics && !root.visible) physics.reset(root);
+    root.visible = joints!==null;
+    if (physics && !fresh(t)) physics.reset(root);
     if (mesh) {
-      mesh.visible = t - meshAt < 5;
+      mesh.visible = current!==null;
       let changed = false;
-      // Ease toward each pose's mesh (about 33 ms behind): smooths the model's jitter between
-      // poses without trailing far behind the joints the games use.
+      // Latest-pose following stays causal. Rotation-space easing preserves
+      // limb lengths; legacy vertex-only messages keep their original path.
       const blend = 1 - Math.exp(-Math.max(0, dt) * 30);
-      for (let i = 0; i < current.length; i++) {
+      if(poseFollower){
+        const pose=poseFollower.step(dt);
+        if(pose){smplSkinning.pose(skin,pose.rotations,pose.translation,current);changed=true;}
+      }else for (let i = 0; i < current.length; i++) {
         const d = target[i] - current[i];
         if (Math.abs(d) > 0.00001) { current[i] += d * blend; changed = true; }
       }
       if (changed) { mesh.geometry.attributes.position.needsUpdate = true; mesh.geometry.computeVertexNormals(); }
     }
     if (skeleton) skeleton.visible = debugVisible || !mesh || !mesh.visible;
-    if (physics && root.visible && mesh && mesh.visible) physics.constrain(root,mesh.geometry);
+    if (physics && fresh(t) && mesh && mesh.visible) physics.constrain(root,mesh.geometry);
     if (physics) physics.updateDebug(root,mesh && mesh.visible?mesh.geometry:null);
   }
 
@@ -256,8 +303,19 @@ window.createAetherAvatar = (scene) => {
 
   function applyTransform() {
     const scale = combatMode ? 0.96 : 1;
-    root.position.set(combatMode ? combatX - anchor.x * scale : 1.1,
-      0.97 * scale, combatMode ? -anchor.z * scale : 0);
+    root.rotation.set(0,facingYaw,0);
+    if(combatMode)horizontalOrigin.copy(anchor);
+    else horizontalOrigin.set(0,0,0);
+    if(cameraPosition && joints) {
+      horizontalOrigin.set(joints[0][0],0,joints[0][2]);
+    }
+    horizontalOrigin.applyQuaternion(root.quaternion).multiplyScalar(scale);
+    root.position.set((combatMode?combatX:1.1)-horizontalOrigin.x,
+      0.97*scale,-horizontalOrigin.z);
+    if(cameraPosition && joints) {
+      root.position.x+=cameraPosition[0]*scale;
+      root.position.z+=cameraPosition[2]*scale;
+    }
     root.scale.setScalar(scale);
     root.updateMatrixWorld(true);
   }
@@ -268,13 +326,26 @@ window.createAetherAvatar = (scene) => {
   }
   setMode(false);
   return { root, combatX, fresh, tick, setMode, onFaces, onVertsFlat, onSkin, onPose, onJoints,
+    setFacing(yaw) {
+      if(!Number.isFinite(yaw)||yaw===facingYaw)return;
+      facingYaw=yaw;
+      if(physics)physics.reset(root);
+      applyTransform();
+    },
+    setCameraPosition(value) {
+      if(value!==null && !validPoint(value))return false;
+      cameraPosition=value===null?null:value.slice();
+      applyTransform();
+      if(physics&&mesh)physics.constrain(root,mesh.geometry);
+      return true;
+    },
     setPhysics(value) { physics=value; },
     setDebug(on) { debugVisible=Boolean(on); },
     get joints() { return joints; },
     disconnect() {
       if (physics) physics.reset(root);
       jointAt = meshAt = -Infinity;
-      root.visible = false;
+      root.visible = joints!==null;
     }
   };
 };

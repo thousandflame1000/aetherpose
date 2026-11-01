@@ -40,6 +40,18 @@ class FitTests(unittest.TestCase):
         cap = samples[samples[:, 2] > 20]  # the tracker was only tilted, never turned over
         self.assertTrue(tool.quality_problems(tool.fit_ellipsoid(cap), len(cap)))
 
+    def test_large_hard_iron_offset_does_not_invalidate_a_full_rotation(self):
+        offset = np.array([70.0, -80.0, 35.0])
+        fit = tool.fit_ellipsoid(sphere_samples(offset, np.ones(3)))
+        self.assertIsNotNone(fit)
+        np.testing.assert_allclose(fit['offset'], offset, atol=0.01)
+        self.assertEqual(tool.quality_problems(fit, 600), [])
+
+    def test_degenerate_or_nonfinite_samples_are_refused(self):
+        for samples in [np.ones((600, 3)), np.zeros((3, 3)), np.full((600, 3), np.nan)]:
+            with self.subTest(shape=samples.shape):
+                self.assertIsNone(tool.fit_ellipsoid(samples))
+
     def test_too_few_samples_or_an_odd_field_are_refused(self):
         fit = tool.fit_ellipsoid(sphere_samples(np.zeros(3), np.ones(3), field=120.0))
         problems = tool.quality_problems(fit, 100)

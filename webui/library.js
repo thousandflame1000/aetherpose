@@ -6,8 +6,9 @@ function setCombatMode(on) {
   if (on === combatMode) return;
   combatMode = on;
   if (on && poseCircuit) { poseCircuit=null; renderPoseCircuit(); }
-  // Activity selection changes rules/HUD only: never swap the visible world,
-  // relocate the body, or replace the user's camera view.
+  // Temporary arena heading: SMPL +Z faces the opponent on the player's +X.
+  // Rotate the shared mesh and joint/collision frame around the player's hip.
+  avatar.setFacing(on?Math.PI/2:0);
   if (on && game.state === 'playing') endGame('Switched to Combat');
   document.body.classList.toggle('combat-mode', on);
   AetherCombat.setActive(on);
@@ -70,6 +71,8 @@ function buildCustomCircuit() {
   showCustomCircuit();
 }
 function renderPoseCircuit() {
+  document.getElementById('circuit-auto-cancel').hidden=!(poseCircuit?.waiting && poseCircuit.restUntil!=null);
+  document.getElementById('circuit-hud-auto-cancel').hidden=!(poseCircuit?.waiting && poseCircuit.restUntil!=null);
   const next=document.getElementById('circuit-next'),stop=document.getElementById('circuit-stop'),status=document.getElementById('circuit-status');
   document.getElementById('circuit-hud').hidden=!poseCircuit;
   document.getElementById('circuit-hud-next').hidden=!poseCircuit?.waiting;
@@ -83,6 +86,31 @@ function renderPoseCircuit() {
   if (poseCircuit.finished) { status.textContent=`訓練完成！${poseCircuit.results.map(result=>`${poseGameNames[result.mode]} ${result.score} 分`).join(' · ')}`; return; }
   status.textContent=`第 ${poseCircuit.index+1} / ${poseCircuit.modes.length} 關 · ${poseGameNames[poseCircuit.modes[poseCircuit.index]]} · 已完成 ${poseCircuit.results.length} 關`+
     (poseCircuit.waiting?'；準備好後按「開始下一關」。':'；本關中斷可按「開始」重試。');
+  if (poseCircuit.waiting && poseCircuit.restUntil!=null) {
+    const remaining=Math.max(0,Math.ceil((poseCircuit.restUntil-performance.now())/1000));
+    const text=`休息 ${remaining} 秒 · 下一關 ${poseGameNames[poseCircuit.modes[poseCircuit.index+1]]}`;
+    status.textContent=text;document.getElementById('circuit-hud-status').textContent=text;
+  } else if(poseCircuit.autoNotice) status.textContent+=' '+poseCircuit.autoNotice;
+}
+function cancelCircuitAuto() {
+  if (!poseCircuit) return;
+  poseCircuit.restUntil=null;poseCircuit.auto=false;poseCircuit.autoNotice='自動接關已取消，可手動開始下一關。';renderPoseCircuit();
+}
+function tickPoseCircuit(now=performance.now()) {
+  if (!poseCircuit?.waiting || poseCircuit.restUntil==null || game.state==='playing') return;
+  if(document.hidden)return;
+  if(combatMode){cancelCircuitAuto();return;}
+  const seconds=Math.max(0,Math.ceil((poseCircuit.restUntil-now)/1000));
+  if (seconds!==poseCircuit.restShown) {poseCircuit.restShown=seconds;renderPoseCircuit();}
+  if (now<poseCircuit.restUntil) return;
+  let issue=meshWs?.readyState!==WebSocket.OPEN?'姿態服務未連線':!avatar.fresh()?'等待新鮮姿態':aetherCalibrationIssue(bridgeStatus,bodyCalibrationPhase);
+  if (!issue && !['demo','live','mixed'].includes(aetherPoseSource(bridgeStatus).kind)) issue='姿態來源未就緒';
+  if (issue) {
+    poseCircuit.restUntil=now+250;
+    document.getElementById('circuit-status').textContent='等待動作資料，恢復後自動接下一關。';
+    document.getElementById('circuit-hud-status').textContent='等待動作資料…';return;
+  }
+  nextPoseCircuitRound();
 }
 function startPoseCircuit() {
   const modes=poseCircuits[document.getElementById('pose-circuit').value];
@@ -90,6 +118,8 @@ function startPoseCircuit() {
   poseCircuit=null;
   chooseGame(modes[0]);
   poseCircuit={preset:document.getElementById('pose-circuit').value,startedAt:Date.now(),modes:modes.slice(),index:0,results:[],waiting:false,finished:false};
+  poseCircuit.auto=document.getElementById('circuit-auto').checked;
+  const rest=Number(document.getElementById('circuit-rest').value);poseCircuit.restSeconds=[10,20,30,60].includes(rest)?rest:20;
   renderPoseCircuit(); startGame();
 }
 function completePoseCircuitRound(completed) {
@@ -104,12 +134,14 @@ function completePoseCircuitRound(completed) {
       renderLastTrainingReport();
     }
     poseCircuit.waiting=!poseCircuit.finished;
+    if (poseCircuit.waiting && poseCircuit.auto) {poseCircuit.restUntil=performance.now()+poseCircuit.restSeconds*1000;poseCircuit.restShown=null;}
   }
   renderPoseCircuit();
 }
 function nextPoseCircuitRound() {
   if (!poseCircuit?.waiting || game.state==='playing') return;
   poseCircuit.index++; poseCircuit.waiting=false;
+  poseCircuit.restUntil=null;poseCircuit.autoNotice='';dismissRoundResult();
   chooseGame(poseCircuit.modes[poseCircuit.index]); renderPoseCircuit(); startGame();
 }
 function stopPoseCircuit() {
@@ -144,15 +176,21 @@ function loadGameFavorites() {
 }
 let gameFavorites=loadGameFavorites();
 function toggleGameFavorite() {
-  const selected=combatMode?'combat':document.getElementById('game-mode').value;
+  const selected=document.getElementById('game-mode').value;
   if (gameFavorites.has(selected)) gameFavorites.delete(selected);
   else gameFavorites.add(selected);
   try { localStorage.setItem(gameFavoriteKey,JSON.stringify([...gameFavorites])); } catch (_) {}
   updateGameLibrary(); filterGameLibrary();
 }
 function updateGameLibrary() {
-  const selected=combatMode?'combat':document.getElementById('game-mode').value;
-  const instructions={
+  const selected=document.getElementById('game-mode').value;
+  document.getElementById('reaction-practice-start').hidden=selected!=='reaction';
+  document.getElementById('body-replay-start').hidden=!['memory','freeze'].includes(selected);
+  document.getElementById('combat-options').hidden=selected!=='combat';
+  document.getElementById('pose-round-options').hidden=selected==='combat';
+  document.getElementById('game-guide-title').textContent=selected==='combat'?'機器人對戰':poseGameNames[selected];
+  const instructions={memory:'看完左傾、右傾與蹲低的提示，再照順序完成。每個動作後回到站姿，答對後題目加長。',freeze:'綠燈時交替抬腳累積分數。黃燈準備站穩，紅燈保持全身不動。紅燈移動，當段分數不計入。',
+    reaction:'雙手放下等待燈號，亮起左手、右手或雙手時才舉手。搶先、錯手及 2.5 秒超時各自記錄，每題後先放下雙手。',
     reach:'伸手碰觸黃色目標，連續快速命中可以累積連擊。',
     squat:'先直立校準，再降低身體並保持 0.5 秒；站直後才能計算下一次深蹲。',
     balance:'依提示抬起左腳或右腳，保持軀幹直立 1.5 秒；得分後換腳。',
@@ -166,10 +204,11 @@ function updateGameLibrary() {
     shoulder:'雙手交叉碰到對側肩膀，保持直立 0.6 秒；兩手都離開肩膀後才能再得分。',
     highfive:'依提示以左手或右手碰高處目標，保持 0.3 秒；另一手留在肩膀以下。得分後放下該手，再換邊。',
     bow:'先直立校準，再向前彎身保持 0.6 秒；保持雙腳同高，站回直立後再做下一次。',
-    combat:'按「開始回合」開始。打中亮起的部位；對手出招時護頭、蹲下或側身。'
+    combat:'出拳或踢腿，打中亮起的部位。對手出招時，依提示護頭、蹲下或側身。'
   };
   const guide=document.getElementById('game-guide');
-  guide.textContent=`${selected==='combat'?'Aether Combat':poseGameNames[selected]} · ${selected==='combat'?'90':'60'} 秒\n${instructions[selected]}`;
+  guide.textContent=instructions[selected];
+  syncSelectedGameControls();
   const favorite=gameFavorites.has(selected), favoriteButton=document.getElementById('game-favorite-btn');
   favoriteButton.textContent=favorite?'★ 取消收藏':'☆ 收藏目前遊戲';
   favoriteButton.setAttribute('aria-pressed',String(favorite));
@@ -187,16 +226,16 @@ function updateGameLibrary() {
     button.style.borderColor=active?'var(--accent)':'';
     button.style.background=active?'rgba(96,165,250,.16)':'';
     const title=button.querySelector('strong');
-    title.textContent=`${gameFavorites.has(button.dataset.gameChoice)?'★ ':''}${button.dataset.gameChoice==='combat'?'Aether Combat':poseGameNames[button.dataset.gameChoice]}`;
+    title.textContent=`${gameFavorites.has(button.dataset.gameChoice)?'★ ':''}${button.dataset.gameChoice==='combat'?'機器人對戰':poseGameNames[button.dataset.gameChoice]}`;
   });
 }
 function chooseGame(mode) {
-  if (mode==='combat') selectTab('combat');
-  else if (Object.hasOwn(poseGameNames,mode)) {
-    if (combatMode) selectTab('games');
-    document.getElementById('game-mode').value=mode;
-    changePoseGame();
-  }
+  if (mode!=='combat' && !Object.hasOwn(poseGameNames,mode)) return;
+  document.getElementById('game-mode').value=mode;
+  selectTab('games');
+  changePoseGame();
+  const trainingGroup=document.getElementById('training-library');
+  if(trainingGroup && !['combat','memory','freeze'].includes(mode))trainingGroup.open=true;
   updateGameLibrary();
 }
 function selectRecordedGame(mode) {
@@ -204,8 +243,7 @@ function selectRecordedGame(mode) {
   document.getElementById('game-search').value='';
   document.getElementById('game-favorites-only').checked=false;
   filterGameLibrary(); chooseGame(mode);
-  // Combat has its own tab; a Pose game is shown in the library.
-  if (mode==='combat') setFocusMode(false); else openGameLibrary();
+  openGameLibrary();
 }
 function openGameLibrary() {
   setFocusMode(false);
@@ -214,11 +252,24 @@ function openGameLibrary() {
   library.open=true;
   library.scrollIntoView({block:'start',behavior:'smooth'});
 }
+function syncSelectedGameControls() {
+  const selected=document.getElementById('game-mode').value;
+  const combat=selected==='combat';
+  const running=combat?AetherCombat.isRunning():game.state==='playing';
+  const start=document.getElementById('library-start');
+  start.textContent=running?'回合進行中':`開始 ${combat?'機器人對戰':poseGameNames[selected]}`;
+  start.disabled=running;
+  document.getElementById('start-btn').hidden=!combat;
+  document.getElementById('combat-stop').hidden=!combat||!running;
+  if(combat) document.getElementById('game-btn').style.display='none';
+  document.getElementById('game-readiness').textContent=combat?'每回合 90 秒':'每回合 60 秒';
+}
 // One stick-figure pictogram per game (inline SVG, 40×44), so the library shows
 // the move, not just its name. Points override the standing figure; `dot` marks a target.
 const GAME_FIGURE_BASE={head:[20,7],neck:[20,13],pelvis:[20,26],lElbow:[14,19],lHand:[12,25],rElbow:[26,19],rHand:[28,25],
   lKnee:[16,34],lFoot:[15,42],rKnee:[24,34],rFoot:[25,42]};
 const GAME_FIGURES={
+  reaction:{lElbow:[12,5],lHand:[10,-1],rElbow:[28,5],rHand:[30,-1],burst:[20,0]},
   reach:{rElbow:[27,11],rHand:[33,5],dot:[36,3]},
   squat:{head:[20,13],neck:[20,19],pelvis:[20,30],lKnee:[12,32],rKnee:[28,32],lElbow:[13,22],lHand:[7,22],rElbow:[27,22],rHand:[33,22]},
   balance:{rKnee:[28,28],rFoot:[26,35],lElbow:[11,14],lHand:[4,14],rElbow:[29,14],rHand:[36,14]},
@@ -246,10 +297,16 @@ function gamePictogram(mode) {
     `<circle cx="${f.head[0]}" cy="${f.head[1]}" r="3.8" fill="currentColor"/>${dot}${burst}${arrow}</svg>`;
 }
 function buildGameLibrary() {
-  const descriptions={reach:'伸手碰觸目標',squat:'深蹲節奏',balance:'單腳平衡',dodge:'左右閃避',sky:'雙手接高空目標',clap:'拍手節奏',march:'交替抬膝',star:'展臂保持',cross:'對側手碰膝',guard:'雙手防守',shoulder:'雙手碰肩',highfive:'交替擊掌',bow:'前傾節奏',combat:'與機器人對戰'};
+  const list=document.getElementById('game-library-list');
+  const training=document.createElement('details');training.id='training-library';
+  const summary=document.createElement('summary');summary.textContent='動作訓練';
+  const trainingList=document.createElement('div');trainingList.className='training-library-grid';
+  training.append(summary,trainingList);
+  const descriptions={reach:'伸手碰觸目標',squat:'蹲下再站直',balance:'抬腳保持平衡',dodge:'依提示左右傾身',sky:'雙手接高處目標',clap:'雙手張開再合掌',march:'左右交替抬膝',star:'雙臂平舉保持',cross:'手碰對側膝蓋',guard:'雙手護住頭部',shoulder:'雙手交叉碰肩',highfive:'左右交替擊掌',bow:'前傾再站直',memory:'記住順序，用身體完成動作',freeze:'綠燈抬腳，紅燈停住',reaction:'依燈號舉起對應的手',combat:'出拳、踢腿，閃避對手攻擊'};
   for (const [mode,name] of Object.entries({...poseGameNames,combat:'Aether Combat'})) {
     const button=document.createElement('button');
     button.className='btn'; button.type='button'; button.dataset.gameChoice=mode;
+    button.dataset.search=`${name} ${mode} ${descriptions[mode]} ${document.querySelector(`#game-mode option[value="${mode}"]`)?.textContent||''}`;
     button.classList.add('game-card');
     const text=document.createElement('span'); text.className='game-card-text';
     const title=document.createElement('strong'); title.textContent=name;
@@ -259,8 +316,11 @@ function buildGameLibrary() {
     const best=document.createElement('span'); best.className='game-card-best'; text.append(best);
     button.insertAdjacentHTML('beforeend',gamePictogram(mode)); button.append(text);
     button.addEventListener('click',()=>chooseGame(mode));
-    document.getElementById('game-library-list').append(button);
+    if(['memory','freeze','combat'].includes(mode)) list.append(button);
+    else trainingList.append(button);
   }
+  list.append(training);
+  for(const option of document.getElementById('game-mode').options) option.textContent=option.value==='combat'?'機器人對戰':poseGameNames[option.value];
   updateGameLibrary();
   filterGameLibrary();
 }
@@ -268,12 +328,17 @@ function filterGameLibrary() {
   const query=document.getElementById('game-search').value.trim().toLocaleLowerCase();
   let matches=0;
   document.querySelectorAll('[data-game-choice]').forEach(button=>{
-    const match=button.textContent.toLocaleLowerCase().includes(query) &&
+    const match=(button.textContent+' '+button.dataset.search).toLocaleLowerCase().includes(query) &&
       (!document.getElementById('game-favorites-only').checked || gameFavorites.has(button.dataset.gameChoice));
     button.hidden=!match;
     if (match) matches++;
   });
+  const training=document.getElementById('training-library');
+  if(training) {
+    training.hidden=![...training.querySelectorAll('[data-game-choice]')].some(button=>!button.hidden);
+    if(query || document.getElementById('game-favorites-only').checked)training.open=true;
+  }
   const total=Object.keys(poseGameNames).length+1;
-  document.getElementById('game-search-status').textContent=matches===total?'':matches?`${matches} / ${total} 個遊戲`:
+  document.getElementById('game-search-status').textContent=matches===total?'':matches?`${matches} 個符合項目`:
     document.getElementById('game-favorites-only').checked?'沒有符合的收藏；取消「只顯示收藏」可查看全部遊戲。':'沒有符合的遊戲，請換個關鍵字。';
 }

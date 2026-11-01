@@ -18,6 +18,19 @@
   --radius:     10px;
   --radius-sm:  7px;
 }
+#reaction-hud {position:absolute;left:50%;top:100px;transform:translateX(-50%);width:min(440px,90%);padding:14px;background:rgba(8,15,25,.94);border:1px solid var(--accent);border-radius:12px;text-align:center;z-index:5;pointer-events:none;}
+#reaction-hud[hidden] {display:none;}
+.reaction-lamps {display:flex;gap:12px;margin-bottom:10px;}
+.reaction-lamps span {flex:1;padding:12px 5px;border:2px solid #53667e;border-radius:50%;color:#9baabe;background:#192739;font-weight:700;}
+.reaction-lamps span.on {background:#ffda66;color:#101722;border-color:#fff2b9;box-shadow:0 0 22px #ffcc4477;}
+#reaction-message {font-size:18px;font-weight:700;line-height:1.6;}
+#reaction-stats {color:var(--text-dim);font-size:12px;line-height:1.7;margin-top:5px;}
+#game-goal-progress {color:var(--amber);font-weight:700;white-space:nowrap;}
+#reaction-practice {margin:auto;width:min(620px,92vw);max-height:90vh;overflow:auto;padding:28px;color:var(--text);background:var(--bg-card);border:1px solid var(--accent);border-radius:16px;}
+#reaction-practice::backdrop {background:rgba(0,0,0,.72);}
+#reaction-practice p {margin:16px 0;line-height:1.8;color:var(--text-dim);}
+#reaction-practice-message {font-size:23px;font-weight:700;margin:20px 0;}
+#reaction-practice-stats {margin-bottom:20px;line-height:1.8;}
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; overflow: hidden; }
 body {
@@ -297,14 +310,19 @@ details.card > summary:has(.meta)::after { margin-left: 8px; }
 #scene-assets input[type=file] { max-width:100%; font-size:12px; color:var(--text-dim); }
 #scene-assets input[type=file]::file-selector-button { padding:6px 9px; margin-right:8px; border:1px solid var(--border-hi); border-radius:var(--radius-sm); background:var(--bg-input); color:var(--text); cursor:pointer; }
 
-input[type=text], input[type=number], input[type=search], select {
+input[type=text], input[type=number], input[type=search], input[type=date], select {
   background: var(--bg-input); color: var(--text);
   border: 1px solid var(--border-hi); border-radius: var(--radius-sm);
   padding: 6px 8px; font-size: 12px; flex: 1;
   outline: none; transition: border-color .15s;
   font-family: inherit;
 }
-input[type=text]:focus, input[type=number]:focus, input[type=search]:focus, select:focus { border-color: var(--accent); }
+input[type=text]:focus, input[type=number]:focus, input[type=search]:focus, input[type=date]:focus, select:focus { border-color: var(--accent); }
+#history-date-controls:not([hidden]) { display:grid; gap:8px; }
+#history-date-controls input { width:100%; min-width:0; color-scheme:dark; }
+#history-import-file { max-width:100%; font-size:12px; color:var(--text-dim); }
+#history-import-file::file-selector-button { padding:6px 9px; margin-right:8px; border:1px solid var(--border-hi); border-radius:var(--radius-sm); background:var(--bg-input); color:var(--text); cursor:pointer; }
+#history-import-file:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
 select { cursor: pointer; }
 /* Keyboard focus: one clear ring on the dark theme (mouse clicks do not show it). */
 button:focus-visible, .tab:focus-visible, summary:focus-visible, input[type=range]:focus-visible,
@@ -341,10 +359,21 @@ input[type=range]::-webkit-slider-thumb {
 .game-card-best:empty { display: none; }
 /* Narrow panel: a smaller figure leaves the name and description room for whole words. */
 #game-library-list { container: game-list / inline-size; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+#training-library { grid-column: 1 / -1; border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
+#training-library summary { cursor: pointer; font-weight: 600; padding: 4px; }
+.training-library-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 6px; margin-top: 10px; }
 #game-search { width: 100%; margin-bottom: 8px; }
 .check-row { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
 #game-search-status { font-size: 12px; color: var(--text-dim); margin-bottom: 8px; }
 #game-guide { margin-top: 12px; padding: 10px; border-top: 1px solid var(--border); font-size: 12px; line-height: 1.7; white-space: pre-line; }
+.selected-game-heading { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:18px; }
+.selected-game-heading h2 { font-size:17px; line-height:1.5; margin:0; }
+#game-readiness { font-size:12px; color:var(--text-dim); white-space:nowrap; }
+#game-guide { margin-top:6px; padding:0 0 12px; border-top:0; font-size:13px; }
+.game-options { margin:12px 0; border-top:1px solid var(--border); padding-top:10px; }
+.game-options summary { cursor:pointer; color:var(--text-dim); font-size:12px; }
+#combat-options[hidden], #pose-round-options[hidden], #development-controls[hidden] { display:none; }
+#library-start { min-height:44px; }
 #history-list { margin-top: 10px; font-size: 12px; }
 @container game-list (max-width: 300px) {
   .btn.game-card { gap: 6px; padding: 7px 7px; }

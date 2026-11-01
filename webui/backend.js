@@ -12,7 +12,13 @@ function connect() {
   ws.onmessage = (e) => { try { onMessage(JSON.parse(e.data)); } catch(_){} };
 }
 function cmd(c) {
-  if (ws && ws.readyState === 1) { ws.send(JSON.stringify(c)); return true; }
+  if (ws && ws.readyState === 1) {
+    ws.send(JSON.stringify(c));
+    if(['ResetYaw','ResetMounting','ClearAllCalibration'].includes(c)){
+      resetPoseGesture(true);AetherCombat.rebaseMotion(true);
+    }
+    return true;
+  }
   showPanelNotice('未送出：後端沒有連線。請用 run.ps1 啟動服務，頁面會自動重新連線。');
   return false;
 }

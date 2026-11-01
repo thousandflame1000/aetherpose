@@ -26,6 +26,50 @@ const TRACKER_SYNC_UUID:           Uuid = Uuid::from_u128(0x19B10002_E8F2_537E_4
 /// connected (and ignored by the scan loop) until the backend was restarted.
 /// This much silence is treated as a disconnect so the scan loop reconnects it.
 const NOTIFY_STALL_TIMEOUT: Duration = Duration::from_secs(3);
+const BLE_OPERATION_TIMEOUT: Duration = Duration::from_secs(8);
+
+/// Owns one attempt/subscription. Every failure, task cancellation and normal
+/// disconnect must release its claim, including failures before spawning.
+struct ConnectionClaim<K: Eq + std::hash::Hash> {
+    seen: Arc<Mutex<std::collections::HashSet<K>>>,
+    id: K,
+}
+impl<K: Eq + std::hash::Hash> Drop for ConnectionClaim<K> {
+    fn drop(&mut self) {
+        if let Ok(mut seen) = self.seen.lock() { seen.remove(&self.id); }
+    }
+}
+
+#[cfg(test)]
+mod reconnect_tests {
+    use super::*;
+
+    #[test]
+    fn failed_attempt_releases_only_its_device() {
+        let seen = Arc::new(Mutex::new([69u8, 31].into_iter().collect()));
+        let attempt = || -> Result<(), ()> {
+            let _claim = ConnectionClaim { seen: seen.clone(), id: 69 };
+            Err(()) // service discovery/subscription failure
+        };
+        assert!(attempt().is_err());
+        assert!(!seen.lock().unwrap().contains(&69));
+        assert!(seen.lock().unwrap().contains(&31));
+    }
+
+    #[tokio::test]
+    async fn cancelled_subscription_releases_device() {
+        let seen = Arc::new(Mutex::new([69u8].into_iter().collect()));
+        let claim = ConnectionClaim { seen: seen.clone(), id: 69 };
+        let task = tokio::spawn(async move {
+            let _claim = claim;
+            std::future::pending::<()>().await;
+        });
+        tokio::task::yield_now().await;
+        task.abort();
+        let _ = task.await;
+        assert!(seen.lock().unwrap().is_empty());
+    }
+}
 
 /// Shared map: tracker_id → latest EKF quaternion [x,y,z,w] to sync back to device.
 /// Written by ingest.rs when loss rate is low; read by BLE notification task.
@@ -71,7 +115,24 @@ pub async fn run_ble_client(
     let seen_ids: Arc<Mutex<std::collections::HashSet<btleplug::platform::PeripheralId>>> =
         Arc::new(Mutex::new(std::collections::HashSet::new()));
 
-    while let Some(event) = events.next().await {
+    let mut retry_tick = time::interval(Duration::from_secs(5));
+    let mut retry_queue = std::collections::VecDeque::new();
+    loop {
+        let event = if let Some(id) = retry_queue.pop_front() {
+            CentralEvent::DeviceUpdated(id)
+        } else {
+            tokio::select! {
+                event = events.next() => match event { Some(event) => event, None => break },
+                _ = retry_tick.tick() => {
+                    // Windows need not emit another discovery after a failed
+                    // attempt; revisit cached peripherals without an app restart.
+                    if let Ok(Ok(peripherals)) = time::timeout(BLE_OPERATION_TIMEOUT, adapter.peripherals()).await {
+                        retry_queue.extend(peripherals.into_iter().map(|p| p.id()));
+                    }
+                    continue;
+                }
+            }
+        };
         let (id, ev_name) = match event {
             CentralEvent::DeviceDiscovered(id) => (id, "Discovered"),
             CentralEvent::DeviceUpdated(id)    => (id, "Updated"),
@@ -98,11 +159,13 @@ pub async fn run_ble_client(
                 }
                 info!("[BLE] {} {:?} name={:?}", ev_name, id, name);
                 if let Ok(true) = peripheral.is_connected().await {
-                    info!("[BLE] {:?} already connected, skip", id);
-                    continue;
+                    // No claim means no task owns this OS connection. Rebuild
+                    // it instead of skipping an orphaned Windows GATT session.
+                    let _ = time::timeout(BLE_OPERATION_TIMEOUT, peripheral.disconnect()).await;
                 }
 
                 if let Ok(mut set) = seen_ids.lock() { set.insert(id.clone()); }
+                let claim = ConnectionClaim { seen: seen_ids.clone(), id: id.clone() };
 
                 let rssi_str = properties.as_ref().and_then(|p| p.rssi)
                     .map(|r| r.to_string()).unwrap_or_else(|| "未知".to_string());
@@ -113,17 +176,16 @@ pub async fn run_ble_client(
 
                 let mut connected = false;
                 for i in 0..5 {
-                    match peripheral.connect().await {
-                        Ok(_) => {
+                    match time::timeout(BLE_OPERATION_TIMEOUT, peripheral.connect()).await {
+                        Ok(Ok(_)) => {
                             connected = true;
                             let _ = adapter.stop_scan().await;
                             time::sleep(Duration::from_millis(500)).await;
-                            let _ = status_tx.as_ref().map(|s| s.send(format!("ble_connected:{}", id)));
                             break;
                         }
-                        Err(e) => {
-                            error!("連線失敗 (嘗試 {}/5): {}", i + 1, e);
-                            let _ = status_tx.as_ref().map(|s| s.send(format!("ble_connect_error:{}:{}", id, e)));
+                        result => {
+                            error!("連線失敗 (嘗試 {}/5): {:?}", i + 1, result);
+                            let _ = status_tx.as_ref().map(|s| s.send(format!("ble_connect_error:{}:{:?}", id, result)));
                             time::sleep(Duration::from_millis(1000 + (i as u64 * 500))).await;
                         }
                     }
@@ -140,9 +202,9 @@ pub async fn run_ble_client(
                 }
 
                 info!("連線成功，搜尋服務...");
-                if let Err(e) = peripheral.discover_services().await {
-                    error!("搜尋服務失敗: {}", e);
-                    let _ = peripheral.disconnect().await;
+                if !matches!(time::timeout(BLE_OPERATION_TIMEOUT, peripheral.discover_services()).await, Ok(Ok(()))) {
+                    error!("搜尋服務失敗或逾時");
+                    let _ = time::timeout(BLE_OPERATION_TIMEOUT, peripheral.disconnect()).await;
                     continue;
                 }
 
@@ -152,10 +214,10 @@ pub async fn run_ble_client(
 
                 if let Some(c) = data_char {
                     info!("訂閱數據特徵...");
-                    if let Err(e) = peripheral.subscribe(c).await {
-                        error!("訂閱失敗: {}", e);
-                        let _ = status_tx.as_ref().map(|s| s.send(format!("ble_subscribe_error:{}:{}", id, e)));
-                        let _ = peripheral.disconnect().await;
+                    if !matches!(time::timeout(BLE_OPERATION_TIMEOUT, peripheral.subscribe(c)).await, Ok(Ok(()))) {
+                        error!("訂閱失敗或逾時");
+                        let _ = status_tx.as_ref().map(|s| s.send(format!("ble_subscribe_error:{}:failed or timed out", id)));
+                        let _ = time::timeout(BLE_OPERATION_TIMEOUT, peripheral.disconnect()).await;
                         continue;
                     }
 
@@ -165,21 +227,21 @@ pub async fn run_ble_client(
                     let sync_char_clone    = sync_char;
                     let p_clone            = peripheral.clone();
                     let status_tx_for_task = status_tx.clone();
-                    let seen_ids_for_task  = seen_ids.clone();
-                    let id_for_task        = id.clone();
 
-                    let mut notification_stream = match peripheral.notifications().await {
-                        Ok(s) => s,
-                        Err(e) => {
-                            error!("無法取得通知串流: {}", e);
-                            let _ = peripheral.disconnect().await;
+                    let mut notification_stream = match time::timeout(BLE_OPERATION_TIMEOUT, peripheral.notifications()).await {
+                        Ok(Ok(s)) => s,
+                        result => {
+                            error!("無法取得通知串流: {:?}", result.err());
+                            let _ = time::timeout(BLE_OPERATION_TIMEOUT, peripheral.disconnect()).await;
                             continue;
                         }
                     };
 
                     info!("BLE 裝置訂閱成功，等待韌體 ID...");
+                    let _ = status_tx.as_ref().map(|s| s.send(format!("ble_connected:{}", id)));
 
                     tokio::spawn(async move {
+                        let _claim = claim;
                         let mut buf: Vec<u8> = Vec::with_capacity(512);
                         // Sync write throttle: send every 300ms when stable
                         let mut last_sync_sent = Instant::now();
@@ -227,7 +289,7 @@ pub async fn run_ble_client(
                                                     .and_then(|map| map.get(&device_id).copied())
                                                     .map(encode_sync_quat);
                                                 if let Some(payload) = sync_payload {
-                                                    let _ = p_clone.write(sync_c, &payload, WriteType::WithoutResponse).await;
+                                                    let _ = time::timeout(BLE_OPERATION_TIMEOUT, p_clone.write(sync_c, &payload, WriteType::WithoutResponse)).await;
                                                     last_sync_sent = Instant::now();
                                                 }
                                             }
@@ -261,14 +323,12 @@ pub async fn run_ble_client(
                         let _ = status_tx_for_task.as_ref().map(|s| {
                             s.send(format!("ble_disconnected:{}", p_clone.address()))
                         });
-                        let _ = p_clone.disconnect().await;
+                        let _ = time::timeout(BLE_OPERATION_TIMEOUT, p_clone.disconnect()).await;
 
-                        // Allow the scan loop to rediscover and reconnect this
-                        // device instead of permanently treating it as "seen".
-                        if let Ok(mut set) = seen_ids_for_task.lock() {
-                            set.remove(&id_for_task);
-                        }
+                        // _claim drops here and also on task cancellation.
                     });
+                } else {
+                    let _ = time::timeout(BLE_OPERATION_TIMEOUT, peripheral.disconnect()).await;
                 }
         }
     }

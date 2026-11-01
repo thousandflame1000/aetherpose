@@ -96,12 +96,30 @@ class SolveTests(unittest.TestCase):
             self.assertEqual(calibration.phase, 'failed', phase)
             self.assertIn('請保持不動', calibration.message)
 
-    def test_needs_a_torso_tracker(self):
+    def test_single_arm_can_supply_the_bow_reference(self):
         clock = Clock()
         calibration = bc.BodyCalibration(clock)
-        run(calibration, clock, Body(3), torso=None)
+        body = Body(3)
+        calibration.start()
+        while calibration.phase in bc.PHASES:
+            bow = calibration.phase in ('bow_ready', 'bow')
+            rotation = Rotation.from_rotvec([np.radians(40 if bow else 0), 0, 0]).as_matrix()
+            calibration.observe(body.raw({ARM: rotation}), None)
+            clock.now += .02
+        self.assertEqual(calibration.phase, 'done')
+        self.assertEqual(calibration.torso_id, ARM)
+        actual, _ = calibration.apply(ARM, *body.raw({ARM: rotation})[ARM])
+        np.testing.assert_allclose(actual, rotation, atol=1e-5)
+
+    def test_missing_all_data_does_not_fake_success(self):
+        clock = Clock()
+        calibration = bc.BodyCalibration(clock)
+        calibration.start()
+        while calibration.phase in bc.PHASES:
+            calibration.observe({}, None)
+            clock.now += .1
         self.assertEqual(calibration.phase, 'failed')
-        self.assertIn('胸口或頭部', calibration.message)
+        self.assertIsNone(calibration.smpl2imu)
 
     def test_a_failed_retry_keeps_the_previous_calibration(self):
         clock, body = Clock(), Body(4)

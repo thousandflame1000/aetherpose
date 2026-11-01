@@ -15,6 +15,13 @@
     [-.4,.27,0],[.4,.27,0],[-.58,.15,0],[.58,.15,0],[-.64,.15,0],[.64,.15,0]
   ];
   const packet = data => meshWs.onmessage({data: JSON.stringify(data)});
+  // Rule-only sequences below advance their own clock. Give each such sample
+  // a fresh arrival while keeping the canonical fixture for relative poses.
+  // Socket loss and cached-packet expiry are tested separately via packet/tick.
+  const updateRulePose = sample => {
+    if(avatar.joints){avatar.onJoints(avatar.joints);acceptPoseGameSample();}
+    updateGame(sample);
+  };
   // The pose service sends a skin once and joint rotations with each pose; the page skins the mesh.
   // A test skin binds every vertex to the root, so an identity pose gives back the template.
   const SMPL_PARENTS = [-1,0,0,0,1,2,3,4,5,6,7,8,9,9,9,12,13,14,16,17,18,19,20,21];
@@ -25,12 +32,88 @@
   const meshPacket = (template, version) => packet({skin: testSkin(template), joints: joints(), joints_version: version, pose: posed()});
   try {
     assert(window.testErrors.length === 0, 'page initializes without errors');
+    const weekNow=Date.parse('2026-10-18T16:00:00Z'); // Monday midnight in Taiwan.
+    assert(historyInPeriod(Date.parse('2026-10-18T16:00:00Z'),'week',weekNow) &&
+      !historyInPeriod(Date.parse('2026-10-18T15:59:59Z'),'week',weekNow), 'Taiwan Monday boundary is inclusive and independent of browser timezone');
+    assert(historyInPeriod(Date.parse('2026-10-11T16:00:00Z'),'last-week',weekNow) &&
+      !historyInPeriod(Date.parse('2026-10-18T16:00:00Z'),'last-week',weekNow), 'previous week includes its start and excludes next Monday');
+    const savedHistory=roundHistory;
+    roundHistory=[{at:Date.now(),mode:'squat',source:'demo:0',score:4,seconds:60,completed:true,reason:'Round ended'},
+      {at:Date.now(),mode:'squat',source:'live:6',score:2,seconds:30,completed:false,reason:'Disconnected'}];
+    renderRoundHistory();
+    assert($('history-training-summary').textContent.includes('示範：1 場，完成 1 場') &&
+      $('history-training-summary').textContent.includes('即時：1 場，完成 0 場，中斷 1 場'), 'training summary separates sources and interrupted rounds');
+    $('history-source').value='live';renderRoundHistory();
+    assert(filteredRoundHistory().length===1 && filteredRoundHistory()[0].source==='live:6' &&
+      !$('history-training-summary').textContent.includes('示範：'), 'CSV selection and visible summary share source filters');
+    const csv=historyCsv(filteredRoundHistory());
+    assert(csv.startsWith('\ufeff') && csv.includes('"live:6"') && !csv.includes('demo:0') && csv.includes('\r\n'), 'CSV has UTF-8 BOM, quoted cells and only filtered rounds');
+    $('history-source').value='all';roundHistory=[];renderRoundHistory();
+    assert($('history-csv-export').disabled && exportFilteredHistoryCsv()===false, 'empty selections disable export and do not download');
+    roundHistory=savedHistory;renderRoundHistory();
+    const customRange=customHistoryRange('2026-10-12','2026-10-18');
+    assert(customRange.valid && customRange.start===Date.parse('2026-10-11T16:00:00Z') && customRange.end===Date.parse('2026-10-18T16:00:00Z'), 'custom date range includes complete Taiwan start and end dates');
+    assert(!customHistoryRange('2026-02-29','2026-03-01').valid && customHistoryRange('2028-02-29','2028-02-29').valid &&
+      !customHistoryRange('2026-10-18','2026-10-12').valid && !customHistoryRange('','2026-10-18').valid, 'custom dates reject invalid, missing and reversed dates while allowing leap days');
+    const customRound={mode:'squat',source:'demo:0',score:1,seconds:60,completed:true,reason:"Time's up"};
+    roundHistory=[{...customRound,at:customRange.start},{...customRound,at:customRange.end-1,imported:true},
+      {...customRound,at:customRange.end},{...customRound,at:customRange.start-1}];
+    $('history-period').value='custom';$('history-date-start').value='2026-10-12';$('history-date-end').value='2026-10-18';renderRoundHistory();
+    assert(filteredRoundHistory().length===2 && !$('history-date-controls').hidden && $('history-date-status').textContent.includes('包含起訖當日'), 'custom date UI filters both boundaries and explains inclusive dates');
+    $('history-origin').value='imported';renderRoundHistory();
+    assert(filteredRoundHistory().length===1 && $('history-list').textContent.includes('備份匯入') && historyCsv(filteredRoundHistory()).includes('"備份匯入"'), 'import provenance filters consistently across list and CSV');
+    $('history-origin').value='local';renderRoundHistory();
+    assert(filteredRoundHistory().length===1 && filteredRoundHistory()[0].at===customRange.start, 'local provenance filter excludes imported rounds');
+    $('history-date-end').value='2026-10-01';renderRoundHistory();
+    assert(filteredRoundHistory().length===0 && $('history-csv-export').disabled && $('history-date-status').textContent.includes('不可早於'), 'invalid custom ranges refuse export with an explicit explanation');
+    $('history-period').value='all';$('history-origin').value='all';$('history-date-start').value='';$('history-date-end').value='';
+    roundHistory=savedHistory;renderRoundHistory();
+    const importOriginal=localStorage.getItem(historyStorageKey),importBase={at:Date.now()-1000,mode:'squat',source:'demo:0',score:4,seconds:60,completed:true,reason:"Time's up"};
+    const importNew={...importBase,at:importBase.at+500,source:'mixed:3',extra:'discard'};
+    const backupText=JSON.stringify({version:1,rounds:[importBase,importNew]});
+    roundHistory=[importBase];
+    await previewHistoryBackup(new File([backupText],'backup.json',{type:'application/json'}));
+    assert(roundHistory.length===1 && !$('history-import-apply').hidden && $('history-import-status').textContent.includes('新增 1 場，重複 1 場'), 'backup file selection previews duplicates and additions without modifying history');
+    assert(applyHistoryBackup() && roundHistory.length===2 && roundHistory[0].source==='mixed:3' && roundHistory[0].imported===true && !Object.hasOwn(roundHistory[0],'extra') && loadRoundHistory()[0].imported===true, 'confirmed backup import persists provenance and newest-first records while stripping unknown fields');
+    await previewHistoryBackup(new File([backupText],'backup.json'));
+    assert($('history-import-apply').hidden && roundHistory.length===2, 'reimporting the same backup does not duplicate rounds');
+    cancelHistoryBackup();assert(!pendingHistoryBackup && $('history-import-cancel').hidden, 'cancel clears backup state');
+    const combatBackup=parseHistoryBackup(JSON.stringify({version:1,rounds:[{...importBase,mode:'combat',difficulty:'hard',combatStats:{attempts:3,hits:2,targets:2,blocked:1,defenses:1,received:0,counters:1,bestCombo:2}}]}));
+    assert(combatBackup[0].difficulty==='hard' && combatBackup[0].combatStats.counters===1, 'backup parsing preserves valid Combat difficulty and detailed statistics');
+    let finishBackupRead;
+    const delayedBackup=previewHistoryBackup({size:backupText.length,text:()=>new Promise(resolve=>{finishBackupRead=resolve;})});
+    cancelHistoryBackup();finishBackupRead(backupText);await delayedBackup;
+    assert(!pendingHistoryBackup && $('history-import-apply').hidden, 'cancel during an asynchronous file read prevents a late preview');
+    const beforeInvalid=JSON.stringify(roundHistory);
+    for (const bad of ['{',JSON.stringify({version:2,rounds:[]}),JSON.stringify({version:1,rounds:[{...importBase,source:['demo:0']}]}),
+      JSON.stringify({version:1,rounds:[{...importBase,at:Number.MAX_SAFE_INTEGER}]}),JSON.stringify({version:1,rounds:[{...importBase,mode:'combat',combatStats:{hits:999}}]})]) {
+      await previewHistoryBackup(new File([bad],'bad.json'));
+      assert(!pendingHistoryBackup && JSON.stringify(roundHistory)===beforeInvalid && $('history-import-apply').hidden, 'malformed backup is rejected atomically: '+bad.slice(0,42));
+    }
+    await previewHistoryBackup(new File([' '.repeat(262145)],'large.json'));
+    assert(!pendingHistoryBackup && $('history-import-status').textContent.includes('256 KB'), 'oversized backup is refused before parsing');
+    const capacity=mergeHistoryBackup(Array.from({length:50},(_,i)=>({...importBase,at:importBase.at-i})),[{...importBase,at:importBase.at+1}]);
+    assert(capacity.rounds.length===50 && capacity.existingDropped===1 && capacity.dropped===1, 'capacity preview counts existing rounds that would be removed');
+    roundHistory=[importBase];await previewHistoryBackup(new File([backupText],'backup.json'));
+    roundHistory.push({...importBase,at:importBase.at-500});
+    assert(!applyHistoryBackup() && roundHistory.length===2 && $('history-import-status').textContent.includes('重新計算'), 'a history change after preview requires review again before merging');
+    const storageSetBeforeImport=Storage.prototype.setItem;
+    Storage.prototype.setItem=function(){throw Error('storage full');};
+    assert(!applyHistoryBackup() && roundHistory.length===2 && $('history-import-status').textContent.includes('無法儲存'), 'failed backup persistence leaves current history unchanged');
+    Storage.prototype.setItem=storageSetBeforeImport;
+    cancelHistoryBackup();
+    if (importOriginal===null) localStorage.removeItem(historyStorageKey);else localStorage.setItem(historyStorageKey,importOriginal);
+    roundHistory=savedHistory;renderRoundHistory();
     assert(document.querySelectorAll('canvas').length === 1, 'one canvas');
     assert(window.testRafRequests === 1, 'one animation loop');
     const originalCamera = camera.position.clone();
     const applicationUrl=location.href;
     const root = avatar.root;
-    assert($('game-library').open && document.querySelectorAll('[data-game-choice]').length===14,'all fourteen game choices visible on entry');
+    assert($('game-library').open && document.querySelectorAll('[data-game-choice]').length===17,'all seventeen activity choices visible on entry');
+    assert($('training-library').querySelectorAll('[data-game-choice]').length===14,'legacy drills and reaction practice share one training group');
+    assert(['memory','freeze','combat'].every(mode=>document.querySelector(`[data-game-choice="${mode}"]`).parentElement===$('game-library-list')),'distinct game loops remain at the lobby top level');
+    assert(validHistoryRound({at:Date.now(),mode:'memory',source:'demo:0',score:10,seconds:60,completed:true,reason:"Time's up",bodyStats:{rounds:1,mistakes:0}}),'body game history accepts round and mistake statistics');
+    assert(!validHistoryRound({at:Date.now(),mode:'freeze',source:'demo:0',score:0,seconds:60,completed:true,reason:"Time's up",bodyStats:{rounds:-1,mistakes:0}}),'body game history rejects invalid statistics');
     assert($('page-cal').classList.contains('active') && !$('page-cal').contains($('game-library')) && $('page-games').contains($('game-library')),
       'setup comes first; the game library has its own tab');
     selectTab('games');
@@ -61,19 +144,22 @@
       'best scores can be cleared without touching the history');
     assert(askClearRoundHistory() && !roundHistory.length, 'confirmed history clearing empties it');
     window.confirm=confirmBeforeClear; roundHistory=historyBeforeClear; poseRecords=recordsBeforeClear; hidePanelNotice(); renderRoundHistory(); updateGameLibrary();
-    assert(document.querySelectorAll('[data-game-choice]:not([hidden])').length===14 && game.state!=='playing','clearing search restores choices without starting a game');
+    assert(document.querySelectorAll('[data-game-choice]:not([hidden])').length===17 && game.state!=='playing','clearing search restores choices without starting a game');
     selectTab('combat'); openGameLibrary();
-    assert(!combatMode && $('page-games').classList.contains('active') && $('game-library').getClientRects().length>0 && $('content').scrollTop>=0,
+    assert(combatMode && $('page-games').classList.contains('active') && $('game-library').getClientRects().length>0 && $('content').scrollTop>=0,
       'the Games button opens the library from Combat');
+    assert(!document.querySelector('.tab[data-tab="combat"]') && !$('page-combat') && $('page-games').contains($('combat-difficulty')),
+      'combat is part of the games page with no separate navigation or settings page');
+    assert(getComputedStyle($('development-controls')).display==='none','keyboard and synthetic test controls stay out of the presentation');
     for (const mode of Object.keys(poseGameNames)) {
       document.querySelector(`[data-game-choice="${mode}"]`).click();
       assert(!combatMode && $('game-mode').value===mode && $('game-btn').textContent===`開始 ${poseGameNames[mode]}` && game.state!=='playing',`library selects ${mode} without starting unavailable tracking`);
       assert(document.querySelector(`[data-game-choice="${mode}"]`).getAttribute('aria-pressed')==='true',`${mode} library selection marked`);
-      assert($('game-guide').textContent.includes(poseGameNames[mode]) && $('game-guide').textContent.includes('60 秒'),`${mode} has a matching guide and duration`);
+      assert($('game-guide-title').textContent===poseGameNames[mode] && $('game-readiness').textContent.includes('60 秒') && $('game-guide').textContent.length>10,`${mode} has a matching guide and duration`);
     }
     document.querySelector('[data-game-choice="combat"]').click();
     assert(combatMode && document.querySelector('[data-game-choice="combat"]').getAttribute('aria-pressed')==='true','library selects Combat in the shared scene');
-    assert($('game-guide').textContent.includes('90 秒') && $('game-guide').textContent.includes('開始回合'),'Combat guide matches its round controls');
+    assert($('game-readiness').textContent.includes('90 秒') && $('game-guide').textContent.includes('出拳') && $('game-mode').value==='combat' && !$('combat-options').hidden && $('pose-round-options').hidden,'Combat shares the game selector and shows only its relevant settings');
     $('game-library').open=false; setFocusMode(true); openGameLibrary();
     assert($('game-library').open && !document.body.classList.contains('focus-mode'),'Games button reveals library from focus mode');
     chooseGame('reach');
@@ -147,9 +233,9 @@
     assert(avatar.root === root && root.parent === scene, 'one avatar remains in shared scene');
     assert(window.testRafRequests === 1, 'switching creates no extra animation loops');
     selectTab('combat'); $('start-btn').click();
-    assert($('start-btn').textContent === '開始回合', 'missing pose cannot start round');
-    selectTab('cal'); startGame();
-    assert(game.state!=='playing' && $('pose-game-cue').textContent.includes('完整的最新姿態'), 'pose games explain unavailable tracking');
+    assert(AetherCombat.isRunning()&&AetherCombat.isHeld(), 'missing pose queues combat until input arrives');
+    chooseGame('reach'); startGame();
+    assert(game.state==='playing'&&poseContinuity.held&&$('pose-game-cue').textContent.includes('自動繼續'), 'pose game waits for input without requiring a second start');
     selectTab('combat');
     packet({joints: joints(), joints_version: 1}); tick(.016);
     assert(root.visible, 'fresh pose visible');
@@ -157,12 +243,17 @@
     const skelGeometry = skeleton.geometry;
     packet({joints: joints(), joints_version: 2});
     assert(root.getObjectByName('aether-skeleton').geometry === skelGeometry, 'skeleton buffers reused');
-    $('start-btn').click();
+    $('library-start').click();
     assert($('start-btn').textContent === '重新開始', 'fresh pose starts round');
+    assert(AetherCombat.isRunning() && $('library-start').disabled && !$('combat-stop').hidden && currentTab==='games',
+      'shared library start launches combat and synchronizes the common round controls');
+    $('combat-stop').click();
+    assert(!AetherCombat.isRunning() && !$('library-start').disabled && $('combat-stop').hidden && $('game-result').style.display==='block',
+      'common stop finishes combat and opens the shared result dialog');
     $('reset-btn').click();
     assert($('start-btn').textContent === '開始回合' && $('round-time').textContent === '90', 'reset restores controls and timer');
     $('start-btn').click(); selectTab('cal');
-    assert($('start-btn').textContent === '開始回合', 'leaving activity stops round');
+    assert(AetherCombat.isRunning(), 'opening setup preserves the selected combat round');
     selectTab('combat');
     packet({faces: [[0,1,2]]});
     meshPacket([0,0,0,.2,0,0,0,.3,0], 'mesh-1'); tick(.016);
@@ -171,6 +262,18 @@
     selectTab('cal'); selectTab('combat');
     assert(root.getObjectByName('aether-body') === body, 'same mesh used by control and combat');
     assert(root.position.x === -.55 && root.scale.x === .96, 'arena uses avatar transform');
+    const combatForward=new THREE.Vector3(0,0,1).applyQuaternion(root.getWorldQuaternion(new THREE.Quaternion()));
+    assert(combatForward.x>.999 && Math.abs(combatForward.z)<1e-6,'combat turns the shared body forward toward the opponent');
+    const facingAvatar=createAetherAvatar(new THREE.Scene());facingAvatar.setMode(true);
+    facingAvatar.onJoints(joints().map(([x,y,z])=>[x+.4,y,z-.3]));
+    const facingHip=facingAvatar.root.localToWorld(new THREE.Vector3(...facingAvatar.joints[0]));
+    facingAvatar.setFacing(Math.PI/2);
+    assert(facingAvatar.root.localToWorld(new THREE.Vector3(...facingAvatar.joints[0])).distanceTo(facingHip)<1e-6,'combat turn pivots around hip without moving the player');
+    facingAvatar.setCameraPosition([.2,0,-.4]);
+    const facingCameraHip=facingAvatar.root.localToWorld(new THREE.Vector3(...facingAvatar.joints[0]));
+    assert(Math.abs(facingCameraHip.x-(avatar.combatX+.2*.96))<1e-6 && Math.abs(facingCameraHip.z+.4*.96)<1e-6,'combat turn preserves camera horizontal position');
+    facingAvatar.setFacing(0);
+    assert(facingAvatar.root.localToWorld(new THREE.Vector3(...facingAvatar.joints[0])).distanceTo(facingCameraHip)<1e-6 && facingAvatar.root.rotation.y===0,'restoring ordinary facing preserves tracked position');
     selectTab('cal');
     assert(root.position.x === avatar.combatX && root.position.y === .97*.96 && root.scale.x === .96, 'all activities preserve the arena avatar transform');
     assert(scene.getObjectByName('combat-world').visible && poseScene.visible, 'arena and pose objects are simultaneously visible');
@@ -212,19 +315,20 @@
     packet({joints: joints(), joints_version: 3}); $('start-btn').click();
     for (let i=0;i<6;i++) { tick(1); packet({joints: joints(), joints_version: 3}); }
     avatar.tick(0,performance.now()/1000);
-    assert(!root.visible && $('start-btn').textContent === '開始回合', 'cached heartbeat cannot keep pose or round alive');
-    packet({joints: joints(), joints_version: 4}); tick(.016); $('start-btn').click();
-    assert($('start-btn').textContent === '重新開始', 'new pose recovers after expiry');
+    assert(root.visible&&!avatar.fresh()&&AetherCombat.isRunning()&&AetherCombat.isHeld(), 'cached heartbeat keeps the last image while freezing judgment');
+    packet({joints: joints(), joints_version: 4}); tick(.016);
+    assert(AetherCombat.isRunning()&&!AetherCombat.isHeld(), 'new pose automatically resumes after expiry');
     AetherCombat.stopRound('Body calibration. Round stopped.');
     assert($('start-btn').textContent === '開始回合' && document.body.textContent.includes('開始身體校正，回合停止'),
       'body calibration stops a combat round with its reason');
     meshWs.onclose();
-    assert(!root.visible && $('start-btn').textContent === '開始回合', 'disconnect hides avatar and stops round');
+    assert(root.visible&&!avatar.fresh()&&$('start-btn').textContent==='開始回合','disconnect keeps the last avatar and invalidates fresh input');
     assert($('tp-status').textContent==='姿態服務已斷線' && $('tp-status').title.includes('run.ps1') && bridgeStatus==='',
       'a pose service disconnect says how to recover and forgets the old status');
     packet({joints: joints(), joints_version: 4}); tick(.016); $('start-btn').click();
     assert($('start-btn').textContent === '重新開始', 'reconnection accepts repeated initial version');
-    tick(91); packet({joints: joints(), joints_version: 5}); tick(.016);
+    for(let i=0;i<91;i++){packet({joints:joints(),joints_version:'timeout-'+i});tick(1);}
+    packet({joints: joints(), joints_version: 5}); tick(.016);
     assert($('start-btn').textContent === '開始回合', 'expired round stays stopped');
     $('reset-btn').click();
     assert($('round-time').textContent === '90', 'reset works after expiry');
@@ -232,17 +336,19 @@
     Math.random = () => .4; // body target, body attack
     packet({joints: joints(), joints_version: 6}); $('start-btn').click();
     const windup = joints();
-    windup[22] = [.45,.23,-.16]; windup[20] = [.2,.23,-.16];
+    // Arena +X is the calibrated body's forward +Z after the combat turn.
+    const combatPoint=([x,y,z])=>[-z,y,x];
+    windup[22] = combatPoint([.45,.23,-.16]); windup[20] = combatPoint([.2,.23,-.16]);
     tick(.4); packet({joints: windup, joints_version: 7});
     tick(.04);
     const punch = joints();
-    punch[22] = [.85,.23,-.16]; punch[20] = [.6,.23,-.16];
+    punch[22] = combatPoint([.85,.23,-.16]); punch[20] = combatPoint([.6,.23,-.16]);
     packet({joints: punch, joints_version: 8});
     assert(+$('enemy-hp-text').textContent < 100, 'moving hand collider damages enemy on current pose');
     assert(scene.getObjectByName('aether-opponent').userData.animation==='No', 'opponent reacts to a landed strike');
     const directionalHp=+$('enemy-hp-text').textContent;
     tick(.4); packet({joints:punch,joints_version:71});
-    const returningHand=punch.map(point=>point.slice()); returningHand[22][0]=.7; returningHand[20][0]=.45;
+    const returningHand=punch.map(point=>point.slice()); returningHand[22][2]=.7; returningHand[20][2]=.45;
     tick(.04); packet({joints:returningHand,joints_version:72});
     assert(+$('enemy-hp-text').textContent===directionalHp,'retracting a hand cannot create another punch');
     tick(.4); packet({joints:punch,joints_version:73});
@@ -280,7 +386,7 @@
     tick(.4); packet({joints:windup,joints_version:84}); tick(.04); packet({joints:punch,joints_version:85});
     assert(+$('enemy-hp-text').textContent===hp && $('event-feed').textContent.includes('場景擋住了手腳的動作'), 'actual thin scene mesh blocks fast hand movement between pose samples');
     scenePhysics.removeCollider(strikeWall); scene.remove(strikeWall); strikeWall.geometry.dispose(); strikeWall.material.dispose();
-    const teleported = joints(); teleported[22] = [3,.23,-.16];
+    const teleported = joints(); teleported[22] = combatPoint([3,.23,-.16]);
     tick(.4); packet({joints: teleported, joints_version: 9});
     assert(+$('enemy-hp-text').textContent === hp, 'teleport cannot create a strike');
     $('reset-btn').click();
@@ -469,32 +575,31 @@
     $('reset-btn').click();
     packet({joints: joints(), joints_version: 18}); $('start-btn').click();
     AetherCombat.setSuspended(true);
-    assert($('start-btn').textContent === '開始回合', 'background tab stops round');
+    assert(AetherCombat.isRunning()&&AetherCombat.isHeld(), 'background tab preserves combat');
     $('start-btn').click();
-    assert($('start-btn').textContent === '開始回合', 'background tab cannot start round');
+    assert(AetherCombat.isRunning()&&AetherCombat.isHeld(), 'starting in background remains queued');
     AetherCombat.setSuspended(false); $('start-btn').click();
     $('recenter-btn').click();
-    assert($('start-btn').textContent === '開始回合' &&
-      JSON.parse(meshWs.sent[meshWs.sent.length - 1]).cmd === 'reset_origin', 'recenter sends command and stops round');
+    assert(AetherCombat.isRunning()&&AetherCombat.isHeld()&&
+      JSON.parse(meshWs.sent[meshWs.sent.length - 1]).cmd === 'reset_origin', 'recenter sends command and waits for the next pose inside the same round');
     packet({status: 'Streaming #1 LIVE 6/6', joints: joints(), joints_version: 19}); tick(.016);
     assert($('ws-state').textContent === '即時動作捕捉', 'live source labeled');
     $('start-btn').click();
     tick(2.7); packet({status:'Streaming #1 LIVE 6/6',joints:joints(),joints_version:191});
     const liveEndsAt=+$('round-time').textContent;
     packet({status: 'Streaming #2 DEBUG mask=test live 0/6', joints: joints(), joints_version: 20}); tick(.016);
-    assert($('start-btn').textContent === '重新開始' && $('event-feed').textContent.includes('追蹤中斷'),
-      'a tracker dropping out freezes the combat round instead of ending it');
+    assert(AetherCombat.isRunning()&&!AetherCombat.isHeld(),'a source change keeps current pose gameplay running');
+    meshWs.readyState=3;meshWs.onclose();tick(.001);
     const pausedAttackProgress=$('combat-attack-progress').value;
     assert(scene.getObjectByName('aether-opponent').userData.animationPaused && !$('combat-attack-progress').hidden,'tracking interruption pauses enemy animation during active telegraph');
     tick(1);
     assert($('combat-attack-progress').value===pausedAttackProgress && scene.getObjectByName('aether-opponent').userData.ai.phase==='windup','tracking interruption cannot advance attack phase or countdown');
-    packet({status: 'Streaming #2 LIVE 6/6', joints: joints(), joints_version: 21}); tick(.016);
+    meshWs.readyState=1;packet({status: 'Streaming #2 LIVE 6/6', joints: joints(), joints_version: 21}); tick(.016);
     assert(!scene.getObjectByName('aether-opponent').userData.animationPaused && $('combat-attack-progress').value<pausedAttackProgress+.1,'resumed tracking resumes animation without jumping to impact');
-    assert($('start-btn').textContent === '重新開始' && $('event-feed').textContent.includes('追蹤恢復') && +$('round-time').textContent>=liveEndsAt-1,
-      'a source that comes back within the grace period continues the round without losing time');
+    assert(AetherCombat.isRunning()&&!AetherCombat.isHeld()&&+$('round-time').textContent>=liveEndsAt-1,
+      'reconnection resumes combat without losing paused time');
     packet({status: 'Streaming #2 DEBUG mask=test live 0/6', joints: joints(), joints_version: 22}); tick(.016); tick(1.6);
-    assert($('start-btn').textContent === '開始回合' && $('ws-state').textContent === '示範資料',
-      'switch from live to demo stops round and labels source');
+    assert(AetherCombat.isRunning()&&$('ws-state').textContent==='示範資料','switching to demo continues and labels the actual source');
     $('reset-btn').click(); packet({status:'Streaming #3 LIVE 6/6',joints:windup,joints_version:230}); $('start-btn').click();
     tick(.04); packet({status:'Streaming #3 DEBUG mask=test live 0/6',joints:punch,joints_version:231});
     tick(.04); packet({status:'Streaming #3 LIVE 6/6',joints:windup,joints_version:232});
@@ -502,20 +607,20 @@
     assert(+$('enemy-hp-text').textContent<100,'unaccepted punch during tracking pause does not consume recovered attack cooldown');
     const prePauseHp=+$('enemy-hp-text').textContent;
     packet({status:'Streaming #3 DEBUG mask=test live 0/6',joints:punch,joints_version:234});
-    tick(.5); packet({status:'Streaming #3 LIVE 6/6',joints:windup,joints_version:235});
+    meshWs.readyState=3;meshWs.onclose();tick(.5);
+    meshWs.readyState=1;packet({status:'Streaming #3 LIVE 6/6',joints:windup,joints_version:235});
     tick(.16); packet({joints:punch,joints_version:236});
     assert(+$('enemy-hp-text').textContent===prePauseHp,'accepted punch cooldown freezes with the round instead of expiring during tracking pause');
     AetherCombat.stopRound('Round ended'); packet({status:'Streaming #4 DEBUG mask=test live 0/6',joints:joints(),joints_version:237});
     $('start-btn').click();
     assert($('event-feed').textContent.includes('示範資料'), 'demo round explicitly labeled');
     const distance = $('combat-distance'); distance.value='1.5'; distance.dispatchEvent(new Event('input'));
-    assert($('start-btn').textContent === '開始回合' && $('combat-distance-value').textContent === '1.50 m',
-      'distance adjustment stops round and updates control');
+    assert(AetherCombat.isRunning()&&$('combat-distance-value').textContent==='1.50 m','distance adjustment preserves combat and updates control');
     distance.value='1.1'; distance.dispatchEvent(new Event('input'));
     $('reset-btn').click();
     const calTab = document.querySelector('[data-tab="cal"]');
     calTab.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
-    assert(!combatMode && calTab.getAttribute('aria-selected') === 'true', 'keyboard can switch tabs');
+    assert(combatMode&&calTab.getAttribute('aria-selected')==='true','keyboard opens setup without changing selected activity');
     const translated = joints().map(p=>[p[0]+2,p[1],p[2]-.7]);
     packet({joints: translated, joints_version: 21});
     setFollowPose(true);
@@ -534,8 +639,7 @@
     assert(Math.abs(movedHip.x-avatar.combatX)<1e-6 && Math.abs(movedHip.z)<1e-6,
       'root drift stays in player arena position');
     packet({status:'Infer err: test'}); $('start-btn').click();
-    assert($('start-btn').textContent === '開始回合' && $('ws-state').textContent === '推論錯誤',
-      'inference error blocks round and displays status');
+    assert(AetherCombat.isRunning()&&AetherCombat.isHeld()&&$('ws-state').textContent==='推論錯誤','inference error retains round and displays status');
     assert(!$('panel-notice').hidden && $('panel-notice').textContent.includes('姿態模型有問題：test') &&
       $('panel-notice').textContent.includes('mesh_bridge.err.log'), 'a pose model error is explained at the top of the panel');
     assert(!$('setup-error').hidden && $('setup-error').textContent.includes('test') && $('setup-error').textContent.includes('mesh_bridge.err.log'),
@@ -570,11 +674,11 @@
     $('start-btn').click();
     packet({status:'Streaming #4 DEBUG mask=test live 5/6'}); tick(.016); tick(1.6);
     assert($('ws-state').textContent==='混合輸入（即時 5/6）' && $('tp-status').textContent==='混合輸入（即時 5/6）' &&
-      $('start-btn').textContent==='開始回合', 'partial live input has shared label and stops previous source round');
+      AetherCombat.isRunning(), 'partial live input has shared label and preserves current round');
     $('start-btn').click();
     assert($('event-feed').textContent.includes('即時與示範資料混合'), 'mixed-input round explicitly labeled');
     packet({status:'Streaming #5 DEBUG mask=test live 4/6'}); tick(.016); tick(1.6);
-    assert($('start-btn').textContent==='開始回合', 'losing a live slot stops mixed-input round');
+    assert(AetherCombat.isRunning(),'losing a live slot preserves mixed-input round');
     packet({status:'Streaming #6 DEBUG mask=test live 0/6'}); tick(.016);
     assert($('subtabbar').hidden && $('advanced-toggle').getAttribute('aria-expanded')==='false', 'the advanced pages start folded away');
     $('advanced-toggle').click();
@@ -620,8 +724,8 @@
     $('panel-notice').hidden=true; updateTrackers({...trackers,76:{...trackers[76],assigned_bone:33}});
     $('panel-notice').hidden=true;
     setStatus(true); const yawSent=ws.sent.length; updateTrackers({...trackers,76:{...trackers[76],assigned_bone:33,last_update_ms:5000}});
-    assert(trackerAction('ResetYaw','x',true)===false && ws.sent.length===yawSent && $('panel-notice-text').textContent.startsWith('沒有連線中的追蹤器'),
-      'resetting yaw without live trackers says there is nothing to reset');
+    assert(trackerAction('ResetYaw','x',true)&&ws.sent.length===yawSent+1&&JSON.parse(ws.sent.at(-1))==='ResetYaw',
+      'a brief tracker sleep does not block explicit yaw reset');
     updateTrackers({...trackers,76:{...trackers[76],assigned_bone:33}});
     assert(trackerAction('ResetYaw','已重設航向：IK 骨架以目前的朝向為正前方。',true) && JSON.parse(ws.sent.at(-1))==='ResetYaw' &&
       !$('panel-notice').hidden && $('panel-notice-text').textContent.startsWith('已重設航向'), 'IK-only tracker actions confirm what they did');
@@ -709,7 +813,7 @@
     tabKey('cal','ArrowRight');
     const arrowedRight=currentTab==='games' && document.activeElement===document.querySelector('.tab[data-tab="games"]');
     tabKey('games','ArrowLeft'); tabKey('cal','ArrowLeft');
-    assert(arrowedRight && currentTab==='combat', 'arrow keys move between the main tabs and wrap around');
+    assert(arrowedRight && currentTab==='games', 'arrow keys move between setup and games and wrap around');
     selectTab('cal');
     const confirmBody=window.confirm, bodySent=ws.sent.length;
     window.confirm=()=>false; assert(resetBodySettings()===false && ws.sent.length===bodySent, 'Body defaults are restored only after confirming');
@@ -743,8 +847,7 @@
       $('setup-summary').textContent==='完成 1 / 3', 'the setup checklist names the body parts still missing a tracker');
     onMessage({type:'Snapshot',data:{packet_count:8,trackers:slotTrackers,bones:[],settings}});
     packet({status:'Streaming #8 LIVE 6/6 · 6 uncalibrated'});
-    assert(document.querySelector('[data-step="calibrate"]').classList.contains('current') && $('setup-summary').textContent==='完成 2 / 3',
-      'uncalibrated live input points to body calibration');
+    assert($('setup-summary').textContent==='全部就緒'&&$('tp-status').textContent.includes('未校正'),'uncalibrated input remains accessible while retaining its notice');
     packet({status:'Streaming #9 LIVE 6/6'});
     assert($('setup-summary').textContent==='全部就緒' && document.querySelector('[data-step="play"]').classList.contains('current') &&
       getComputedStyle(document.querySelector('[data-step="connect"]')).display==='none' &&
@@ -856,41 +959,34 @@
     assert($('ble-status').textContent==='', 'no Bluetooth status before the backend reports one');
     const liveStatus='Streaming #8 LIVE 6/6 · 6 uncalibrated';
     packet({status:liveStatus,calibration:{phase:'idle',message:'Not calibrated.',seconds_left:0}});
-    assert($('body-cal-start').disabled && $('body-cal-status').textContent.includes('胸口或頭部'),
-      'body calibration explains that it needs a live chest or head tracker');
+    assert(!$('body-cal-start').disabled && $('body-cal-status').textContent.includes('可直接校正'),
+      'body calibration allows a limb reference without a chest or head assignment');
     const chest={id:31,assigned_bone:2,last_update_ms:0,connection_type:'Ble'};
     onMessage({type:'Snapshot',data:{packet_count:6,trackers:{31:chest,76:trackers[76]},bones:[],settings}});
     packet({status:liveStatus,calibration:{phase:'idle',message:'Not calibrated.',seconds_left:0}});
     assert($('body-cal-status').textContent.startsWith('即時追蹤器尚未校正') && !$('body-cal-start').disabled &&
       $('body-cal-cancel').disabled, 'uncalibrated live tracking asks for body calibration');
     assert($('tp-status').textContent==='即時動作捕捉 · 未校正', 'the pose source label warns about uncalibrated input');
-    packet({joints: joints(), joints_version: 900}); tick(.016); selectTab('cal'); startGame();
-    assert(game.state!=='playing' && $('pose-game-cue').textContent.includes('尚未校正'),
-      'uncalibrated live input cannot start a pose round');
+    packet({joints: joints(), joints_version: 900}); tick(.016); chooseGame('reach'); startGame();
+    assert(game.state==='playing'&&!poseContinuity.held,'uncalibrated live input remains playable');
     selectTab('combat'); $('start-btn').click();
-    assert($('start-btn').textContent==='開始回合' && $('event-feed').textContent.includes('尚未校正'),
-      'uncalibrated live input cannot start Combat');
-    selectTab('cal');
+    assert(AetherCombat.isRunning()&&!AetherCombat.isHeld(),'uncalibrated live input remains playable in combat');
+    chooseGame('reach');
     packet({status:'Streaming #8 DEBUG mask=test live 2/6 · 2 uncalibrated'}); startGame();
-    assert(game.state!=='playing' && $('pose-game-cue').textContent.includes('尚未校正'),
-      'mixed uncalibrated trackers also require body calibration');
+    assert(game.state==='playing'&&!poseContinuity.held,'mixed input does not require a calibration gate');
     packet({status:'Streaming #8 LIVE 6/6'}); startGame();
     assert(game.state==='playing', 'calibrated live input can start a pose round');
     startBodyCalibration();
     assert(JSON.parse(meshWs.sent.at(-1)).cmd==='calibrate_body', 'Calibrate body asks the pose service to start');
-    assert(game.state==='over' && $('game-result').textContent.includes('開始身體校正') && $('game-result').textContent.includes('未完成'),
-      'body calibration ends a running round as unfinished');
+    assert(game.state==='playing'&&poseContinuity.held,'body calibration retains the active round');
     startGame();
-    assert(game.state!=='playing' && $('pose-game-cue').textContent.includes('等待姿態服務回應'),
-      'a pending calibration request blocks pose rounds before the reply arrives');
+    assert(game.state==='playing'&&poseContinuity.held,'start during pending calibration queues continuation');
     selectTab('combat'); $('start-btn').click();
-    assert($('start-btn').textContent==='開始回合' && $('event-feed').textContent.includes('等待姿態服務回應'),
-      'a pending calibration request blocks Combat before the reply arrives');
-    selectTab('cal');
+    assert(AetherCombat.isRunning()&&AetherCombat.isHeld(),'combat queues during pending calibration');
+    chooseGame('reach');
     packet({status:liveStatus,calibration:{phase:'tpose',message:'Hold the T-pose still…',seconds_left:1.2}});
     startGame();
-    assert(game.state!=='playing' && $('pose-game-cue').textContent.includes('校正進行中'),
-      'a pose round cannot start during body calibration');
+    assert(game.state==='playing'&&poseContinuity.held,'a pose round waits within calibration');
     assert($('body-cal-status').textContent==='Hold the T-pose still… 2 s' && $('body-cal-start').disabled && !$('body-cal-cancel').disabled,
       'calibration shows the current step and its countdown');
     const backendSent=ws.sent.length;
@@ -907,25 +1003,20 @@
     assert($('body-cal-status').textContent==='Calibrated 6 trackers.' && !$('body-cal-start').disabled, 'finished calibration is reported');
     startGame();
     packet({status:'Streaming #9 LIVE 6/6',calibration:{phase:'tpose_ready',message:'Remote calibration',seconds_left:3}});
-    assert(game.state==='over' && $('game-result').textContent.includes('開始身體校正') && $('game-result').textContent.includes('未完成'),
-      'remote body calibration stops a pose round before calibration motion scores');
+    assert(game.state==='playing'&&poseContinuity.held,'remote calibration freezes judgment without ending the pose round');
     packet({calibration:{phase:'done',message:'Calibrated 6 trackers.',seconds_left:0}});
     selectTab('combat'); $('start-btn').click();
     packet({calibration:{phase:'tpose_ready',message:'Remote calibration',seconds_left:3}});
-    assert($('start-btn').textContent==='開始回合' && $('game-result').textContent.includes('開始身體校正'),
-      'remote body calibration stops Combat too');
+    assert(AetherCombat.isRunning()&&AetherCombat.isHeld(),'remote calibration retains combat');
     $('start-btn').click();
-    assert($('start-btn').textContent==='開始回合' && $('event-feed').textContent.includes('校正進行中'),
-      'Combat cannot restart while calibration runs');
+    assert(AetherCombat.isRunning()&&AetherCombat.isHeld(),'combat remains queued while calibration runs');
     packet({calibration:{phase:'done',message:'Calibrated 6 trackers.',seconds_left:0}});
     $('start-btn').click();
     packet({status:liveStatus});
-    assert($('start-btn').textContent==='開始回合' && $('game-result').textContent.includes('校正失效') && $('game-result').textContent.includes('未完成'),
-      'invalidated live calibration stops Combat without a completed score');
-    selectTab('cal'); packet({status:'Streaming #9 LIVE 6/6'}); startGame();
+    assert(AetherCombat.isRunning()&&!AetherCombat.isHeld(),'uncalibrated notice does not terminate combat');
+    chooseGame('reach'); packet({status:'Streaming #9 LIVE 6/6'}); startGame();
     packet({status:liveStatus});
-    assert(game.state==='over' && $('game-result').textContent.includes('校正失效') && $('game-result').textContent.includes('未完成'),
-      'invalidated live calibration stops pose games without a completed score');
+    assert(game.state==='playing'&&!poseContinuity.held,'uncalibrated notice does not terminate pose play');
     packet({status:'Streaming #6 DEBUG mask=test live 0/6'});
     onMessage({type:'Snapshot',data:{packet_count:7,trackers:{76:trackers[76]},bones:[],settings}});
     assert(firmwareMag===null && $('mag-start').disabled && $('mag-status').textContent.includes('run.ps1'),
@@ -977,7 +1068,7 @@
     const beforePauseDeadline=game.deadline;
     $('game-pause').click();
     window.testClock+=2000;
-    updateGame(avatar.joints); updateReachClock(performance.now());
+    updateRulePose(avatar.joints); updateReachClock(performance.now());
     assert(game.paused && game.score===0 && game.timeLeft===60 && targetMeshes.every(m=>!m.visible), 'pause freezes clock, targets and scoring');
     $('game-pause').click();
     assert(!game.paused && game.deadline===beforePauseDeadline+2000 && targetMeshes.every(m=>m.visible) && $('game-pause').textContent==='暫停', 'resume restores targets and extends deadline by pause duration');
@@ -997,15 +1088,15 @@
     scene.add(reachWall); scenePhysics.addCollider(reachWall);
     const blockedReachScore=game.score;
     assert(!scenePhysics.pointBlocked(targetMeshes[0].position,.07),'obstructed reach target remains outside obstacle');
-    updateGame(avatar.joints);
+    updateRulePose(avatar.joints);
     assert(game.score===blockedReachScore && game.combo===0 && $('pose-game-cue').textContent.includes('擋住'),'Reach cannot score through a scene mesh and clears combo');
-    scenePhysics.stats.enabled=false; updateGame(avatar.joints);
+    scenePhysics.stats.enabled=false; updateRulePose(avatar.joints);
     assert(game.score===blockedReachScore+1,'Reach hand-path obstruction respects disabled scene collisions');
     scenePhysics.stats.enabled=true;
     targetMeshes[0].position.copy(obstructedHand).add(new THREE.Vector3(.145,0,0));
     game.combo=0; game.lastHitAt=-Infinity;
     scenePhysics.removeCollider(reachWall); scene.remove(reachWall); reachWall.geometry.dispose(); reachWall.material.dispose();
-    updateGame(avatar.joints);
+    updateRulePose(avatar.joints);
     assert(game.score===blockedReachScore+2 && !$('pose-game-cue').textContent.includes('擋住'),'Reach resumes with a new combo after obstruction removal');
     const savedRandom=Math.random;
     Math.random=()=>.5;
@@ -1016,102 +1107,98 @@
     const previousScore=game.score;
     game.deadline=performance.now()-1;
     targetMeshes[0].position.copy(root.localToWorld(new THREE.Vector3(...avatar.joints[22])));
-    updateGame(avatar.joints);
+    updateRulePose(avatar.joints);
     assert(game.state==='over' && game.score===previousScore && game.timeLeft===0, 'reach deadline prevents late scoring');
     startGame();
     assert(game.lastHitAt===-Infinity && game.score===0 && game.combo===0, 'reach restart clears previous combo timing');
     const reachDeadline=game.deadline, reachSource=bridgeStatus;
     packet({status:'Streaming #8 DEBUG mask=test live 1/6'});
-    assert(game.state==='playing' && $('game-time').textContent==='等待追蹤' && $('pose-game-cue').textContent.includes('追蹤中斷'),
-      'a pose source change first waits for the tracker');
+    assert(game.state==='playing'&&!poseContinuity.held,'a pose source change continues with available input');
     window.testClock+=800; packet({status:reachSource});
-    assert(game.state==='playing' && Math.abs(game.deadline-reachDeadline-800)<1 && $('pose-game-cue').textContent.includes('追蹤恢復'),
-      'a pose round continues when the source comes back, without losing the wait');
+    assert(game.state==='playing'&&game.deadline===reachDeadline,'source switching does not reset the round timer');
     packet({status:'Streaming #8 DEBUG mask=test live 1/6'}); window.testClock+=1600; updateReachClock(performance.now());
-    assert(game.state==='over' && $('game-result').textContent.includes('資料來源改變'),
-      'reach source change stops round with correct reason');
+    assert(game.state==='playing','source change never auto-finishes reach');
     packet({status:'Infer err: test'}); startGame();
-    assert(game.state!=='playing', 'inference error blocks reach activity too');
-    assert($('pose-game-cue').textContent.includes('姿態推論錯誤'), 'pose games explain inference failure');
+    assert(game.state==='playing'&&poseContinuity.held,'inference error retains queued reach round');
+    assert($('pose-game-cue').textContent.includes('自動繼續'),'pose game explains automatic recovery');
     meshWs.readyState=3; startGame();
-    assert(game.state!=='playing' && $('pose-game-cue').textContent.startsWith('姿態服務沒有連線'),
-      'pose games explain a missing pose service');
+    assert(game.state==='playing'&&poseContinuity.held,'missing pose service retains queued play');
     meshWs.readyState=1;
     packet({status:'Streaming #9 DEBUG mask=test live 0/6',joints:joints(),joints_version:25});
     $('game-mode').value='squat'; changePoseGame(); startGame();
     assert(game.mode==='squat' && targetMeshes.every(m=>!m.visible), 'squat starts in shared scene without reach targets');
-    assert($('library-start').disabled && $('library-start').textContent==='開始 Squat Rhythm', 'the library start button follows the game and is off during a round');
+    assert($('library-start').disabled && $('library-start').textContent==='回合進行中', 'the library start button follows the game and is off during a round');
     assert(!$('pose-ready').hidden && $('game-time').textContent==='校準中', 'calibration shows readiness bar instead of running countdown');
-    window.testClock+=100; updateGame(avatar.joints);
+    window.testClock+=100; updateRulePose(avatar.joints);
     assert(game.source.kind==='demo' && !$('pose-game-cue').textContent.includes('示範資料'), 'no demo hint while calibration has just started');
     const calibrationSince=game.calibrationSince; game.calibrationSince-=DEMO_CALIBRATION_HINT_MS+1;
-    window.testClock+=100; updateGame(avatar.joints);
-    assert($('pose-game-cue').textContent.includes('示範資料的動作不會停下來'), 'a calibration stuck on demo data says why');
-    game.calibrationSince=calibrationSince; game.readyHold=0; game.readyHeight=null;
+    window.testClock+=100; updateRulePose(avatar.joints);
+    assert(!game.calibrating,'standing alignment automatically finishes instead of blocking on moving demo data');
+    startGame();game.calibrationSince=calibrationSince; game.readyHold=0; game.readyHeight=null;
     const initialDeadline=game.deadline;
-    for(let i=0;i<11;i++) { window.testClock+=100; updateGame(avatar.joints); }
+    for(let i=0;i<11;i++) { window.testClock+=100; updateRulePose(avatar.joints); }
     assert(!game.calibrating && game.deadline>initialDeadline && game.timeLeft===60, 'standing calibration completes before timed round');
     assert($('pose-ready').hidden && $('game-time').textContent==='60 秒', 'completed calibration hides readiness bar and reveals full round time');
     const bowPose=avatar.joints.map(p=>p.slice()); bowPose[15][1]-=.25;
-    for(let i=0;i<6;i++) { window.testClock+=100; updateGame(bowPose); }
+    for(let i=0;i<6;i++) { window.testClock+=100; updateRulePose(bowPose); }
     assert(game.score===0, 'head lowering alone is not a squat');
     const squatPose=avatar.joints.map(p=>p.slice()); squatPose[15][1]-=.25; squatPose[0][1]-=.2;
-    for(let i=0;i<6;i++) { window.testClock+=100; updateGame(squatPose); }
+    for(let i=0;i<6;i++) { window.testClock+=100; updateRulePose(squatPose); }
     assert(game.score===1 && game.phase==='stand', 'squat hold scores one repetition');
-    for(let i=0;i<6;i++) { window.testClock+=100; updateGame(squatPose); }
+    for(let i=0;i<6;i++) { window.testClock+=100; updateRulePose(squatPose); }
     assert(game.score===1, 'held squat cannot score repeatedly');
-    window.testClock+=100; updateGame(avatar.joints);
-    for(let i=0;i<6;i++) { window.testClock+=100; updateGame(squatPose); }
+    window.testClock+=100; updateRulePose(avatar.joints);
+    for(let i=0;i<6;i++) { window.testClock+=100; updateRulePose(squatPose); }
     assert(game.score===2, 'standing rearms squat repetition');
     $('game-mode').value='balance'; changePoseGame(); startGame();
     const unreadyPose=avatar.joints.map(p=>p.slice()); unreadyPose[10][1]+=.2;
-    for(let i=0;i<12;i++) { window.testClock+=100; updateGame(unreadyPose); }
+    for(let i=0;i<12;i++) { window.testClock+=100; updateRulePose(unreadyPose); }
     updateReachClock(performance.now());
     assert(game.calibrating && game.score===0 && game.timeLeft===60, 'raised foot cannot calibrate or consume round time');
     assert($('pose-game-cue').textContent.includes('雙腳要踩平'), 'calibration explains unlevel feet');
-    for(let i=0;i<2;i++) { window.testClock+=100; updateGame(avatar.joints); }
+    for(let i=0;i<2;i++) { window.testClock+=100; updateRulePose(avatar.joints); }
     AetherCombat.onJoints(avatar.joints);
     $('game-pause').click();
     assert($('game-time').textContent==='已暫停' && !$('pose-ready').hidden, 'paused calibration displays paused state');
     $('game-pause').click();
     assert($('pose-ready').value===0 && $('game-time').textContent==='校準中', 'resuming calibration resets readiness progress');
-    for(let i=0;i<11;i++) { window.testClock+=100; updateGame(avatar.joints); }
+    for(let i=0;i<11;i++) { window.testClock+=100; updateRulePose(avatar.joints); }
     assert(!game.calibrating, 'balance uses stable standing calibration');
     const balancePose=avatar.joints.map(p=>p.slice());
     balancePose[15][0]=balancePose[0][0]; balancePose[15][2]=balancePose[0][2];
     balancePose[10][1]=balancePose[11][1]+.2;
-    for(let i=0;i<16;i++) { window.testClock+=100; updateGame(balancePose); }
+    for(let i=0;i<16;i++) { window.testClock+=100; updateRulePose(balancePose); }
     assert(game.score===1 && game.foot===11, 'balance hold scores then prompts other foot');
-    for(let i=0;i<16;i++) { window.testClock+=100; updateGame(balancePose); }
+    for(let i=0;i<16;i++) { window.testClock+=100; updateRulePose(balancePose); }
     assert(game.score===1, 'wrong foot cannot score balance prompt');
     balancePose[11][1]=balancePose[10][1]+.2;
-    window.testClock+=1000; updateGame(balancePose);
+    window.testClock+=1000; updateRulePose(balancePose);
     assert(game.hold===0, 'sample gap cannot count as balance hold');
-    for(let i=0;i<16;i++) { window.testClock+=100; updateGame(balancePose); }
+    for(let i=0;i<16;i++) { window.testClock+=100; updateRulePose(balancePose); }
     assert(game.score===2 && game.foot===10, 'balance alternates left and right');
     $('game-stop').click();
     assert(game.state==='over' && $('game-stop').style.display==='none' && $('game-result').textContent.includes('中途結束'), 'manual stop ends challenge and restores controls');
     packet({status:'Streaming #10 DEBUG mask=test live 0/6',joints:joints(),joints_version:26});
     $('game-mode').value='dodge'; changePoseGame(); startGame();
     assert(game.mode==='dodge' && game.calibrating, 'dodge shares standing calibration');
-    for(let i=0;i<11;i++) { window.testClock+=100; updateGame(avatar.joints); }
+    for(let i=0;i<11;i++) { window.testClock+=100; updateRulePose(avatar.joints); }
     const leftDodge=avatar.joints.map(p=>p.slice()); leftDodge[15][0]-=.22; leftDodge[9][0]-=.11;
     const rightDodge=avatar.joints.map(p=>p.slice()); rightDodge[15][0]+=.22; rightDodge[9][0]+=.11;
-    for(let i=0;i<5;i++) { window.testClock+=100; updateGame(rightDodge); }
+    for(let i=0;i<5;i++) { window.testClock+=100; updateRulePose(rightDodge); }
     assert(game.score===0 && targetMeshes[0].visible, 'dodge cue rejects wrong direction');
     const headOnly=avatar.joints.map(p=>p.slice()); headOnly[15][0]-=.22;
-    for(let i=0;i<5;i++) { window.testClock+=100; updateGame(headOnly); }
+    for(let i=0;i<5;i++) { window.testClock+=100; updateRulePose(headOnly); }
     assert(game.score===0, 'head turn alone does not count as torso dodge');
-    for(let i=0;i<5;i++) { window.testClock+=100; updateGame(leftDodge); }
+    for(let i=0;i<5;i++) { window.testClock+=100; updateRulePose(leftDodge); }
     assert(game.score===1 && game.needsCenter && game.dodgeSide===1 && !targetMeshes[0].visible, 'left dodge scores and prompts neutral reset');
-    for(let i=0;i<5;i++) { window.testClock+=100; updateGame(rightDodge); }
+    for(let i=0;i<5;i++) { window.testClock+=100; updateRulePose(rightDodge); }
     assert(game.score===1, 'switching directly to opposite lean cannot bypass center');
-    window.testClock+=100; updateGame(avatar.joints);
-    for(let i=0;i<5;i++) { window.testClock+=100; updateGame(rightDodge); }
+    window.testClock+=100; updateRulePose(avatar.joints);
+    for(let i=0;i<5;i++) { window.testClock+=100; updateRulePose(rightDodge); }
     assert(game.score===2 && game.dodgeSide===-1, 'neutral rearm allows alternating dodge score');
     packet({status:'Streaming #12 DEBUG mask=test live 0/6',joints:joints(),joints_version:27});
     $('game-mode').value='sky'; changePoseGame(); startGame();
-    for(let i=0;i<11;i++) { window.testClock+=100; updateGame(avatar.joints); }
+    for(let i=0;i<11;i++) { window.testClock+=100; updateRulePose(avatar.joints); }
     assert(game.mode==='sky' && !game.calibrating, 'sky catch uses shared standing calibration');
     game.hold=.3; $('game-pause').click(); window.testClock+=100;
     $('game-pause').click();
@@ -1119,14 +1206,14 @@
     const raised=avatar.joints.map(p=>p.slice());
     raised[22]=[-.12,raised[15][1]+.25,0]; raised[23]=[.12,raised[15][1]+.25,0];
     const single=raised.map(p=>p.slice()); single[23]=avatar.joints[23].slice();
-    for(let i=0;i<5;i++) { window.testClock+=100; updateGame(single); }
+    for(let i=0;i<5;i++) { window.testClock+=100; updateRulePose(single); }
     assert(game.score===0 && targetMeshes[0].visible, 'single hand cannot catch two-hand target');
-    for(let i=0;i<5;i++) { window.testClock+=100; updateGame(raised); }
+    for(let i=0;i<5;i++) { window.testClock+=100; updateRulePose(raised); }
     assert(game.score===1 && game.needsLower && !targetMeshes[0].visible, 'two raised hands catch overhead target');
-    for(let i=0;i<5;i++) { window.testClock+=100; updateGame(raised); }
+    for(let i=0;i<5;i++) { window.testClock+=100; updateRulePose(raised); }
     assert(game.score===1, 'holding raised hands cannot farm sky catch scores');
-    window.testClock+=100; updateGame(avatar.joints);
-    for(let i=0;i<5;i++) { window.testClock+=100; updateGame(raised); }
+    window.testClock+=100; updateRulePose(avatar.joints);
+    for(let i=0;i<5;i++) { window.testClock+=100; updateRulePose(raised); }
     assert(game.score===2 && game.needsLower, 'lowering both hands rearms sky catch');
     $('game-sound').checked=false; $('game-sound').dispatchEvent(new Event('change'));
     $('game-sound').checked=true; loadSoundSetting();
@@ -1139,172 +1226,172 @@
     openClap[23]=[openClap[9][0]+.35,openClap[9][1],openClap[9][2]];
     const closedClap=openClap.map(p=>p.slice());
     closedClap[22][0]=closedClap[9][0]-.04; closedClap[23][0]=closedClap[9][0]+.04;
-    for(let i=0;i<11;i++) { window.testClock+=100; updateGame(closedClap); }
-    for(let i=0;i<4;i++) { window.testClock+=100; updateGame(closedClap); }
+    for(let i=0;i<11;i++) { window.testClock+=100; updateRulePose(closedClap); }
+    for(let i=0;i<4;i++) { window.testClock+=100; updateRulePose(closedClap); }
     assert(game.score===0 && !game.clapOpened, 'clap cannot start from hands already together');
-    window.testClock+=100; updateGame(openClap);
-    for(let i=0;i<3;i++) { window.testClock+=100; updateGame(closedClap); }
+    window.testClock+=100; updateRulePose(openClap);
+    for(let i=0;i<3;i++) { window.testClock+=100; updateRulePose(closedClap); }
     assert(game.score===1 && !game.clapOpened, 'chest-height open-close gesture scores clap');
-    for(let i=0;i<4;i++) { window.testClock+=100; updateGame(closedClap); }
+    for(let i=0;i<4;i++) { window.testClock+=100; updateRulePose(closedClap); }
     assert(game.score===1, 'held clap cannot repeatedly score');
-    window.testClock+=100; updateGame(openClap);
+    window.testClock+=100; updateRulePose(openClap);
     const lowClap=closedClap.map(p=>p.slice()); lowClap[22][1]-=.5; lowClap[23][1]-=.5;
-    for(let i=0;i<4;i++) { window.testClock+=100; updateGame(lowClap); }
+    for(let i=0;i<4;i++) { window.testClock+=100; updateRulePose(lowClap); }
     assert(game.score===1, 'hands together below chest cannot count as clap');
-    window.testClock+=1000; updateGame(closedClap);
+    window.testClock+=1000; updateRulePose(closedClap);
     assert(game.hold===0, 'clap sample gap discards hold');
-    for(let i=0;i<3;i++) { window.testClock+=100; updateGame(closedClap); }
+    for(let i=0;i<3;i++) { window.testClock+=100; updateRulePose(closedClap); }
     assert(game.score===2, 'opening arms rearms another clap');
     packet({status:'Streaming #14 DEBUG mask=test live 0/6',joints:joints(),joints_version:29});
     $('game-mode').value='march'; changePoseGame(); startGame();
-    for(let i=0;i<11;i++) { window.testClock+=100; updateGame(avatar.joints); }
+    for(let i=0;i<11;i++) { window.testClock+=100; updateRulePose(avatar.joints); }
     const leftStep=avatar.joints.map(p=>p.slice()); leftStep[4][1]+=.2; leftStep[10][1]+=.12;
     const rightStep=avatar.joints.map(p=>p.slice()); rightStep[5][1]+=.2; rightStep[11][1]+=.12;
-    for(let i=0;i<4;i++) { window.testClock+=100; updateGame(rightStep); }
+    for(let i=0;i<4;i++) { window.testClock+=100; updateRulePose(rightStep); }
     assert(game.score===0 && game.foot===10, 'march rejects wrong-side knee lift');
     const kneeOnly=leftStep.map(p=>p.slice()); kneeOnly[10][1]=avatar.joints[10][1];
-    for(let i=0;i<4;i++) { window.testClock+=100; updateGame(kneeOnly); }
+    for(let i=0;i<4;i++) { window.testClock+=100; updateRulePose(kneeOnly); }
     assert(game.score===0, 'march requires both knee and foot lift');
     const droppedFoot=avatar.joints.map(p=>p.slice()); droppedFoot[11][1]-=.2;
-    for(let i=0;i<4;i++) { window.testClock+=100; updateGame(droppedFoot); }
+    for(let i=0;i<4;i++) { window.testClock+=100; updateRulePose(droppedFoot); }
     assert(game.score===0, 'lowering the other foot cannot fake a knee lift');
-    for(let i=0;i<4;i++) { window.testClock+=100; updateGame(leftStep); }
+    for(let i=0;i<4;i++) { window.testClock+=100; updateRulePose(leftStep); }
     assert(game.score===1 && game.foot===11 && game.marchNeutral, 'march scores left step and prompts right');
-    for(let i=0;i<4;i++) { window.testClock+=100; updateGame(rightStep); }
+    for(let i=0;i<4;i++) { window.testClock+=100; updateRulePose(rightStep); }
     assert(game.score===1, 'march requires both feet down before changing sides');
-    window.testClock+=100; updateGame(avatar.joints);
-    window.testClock+=1000; updateGame(rightStep);
+    window.testClock+=100; updateRulePose(avatar.joints);
+    window.testClock+=1000; updateRulePose(rightStep);
     assert(game.hold===0, 'march sample gap cannot accumulate hold');
-    for(let i=0;i<4;i++) { window.testClock+=100; updateGame(rightStep); }
+    for(let i=0;i<4;i++) { window.testClock+=100; updateRulePose(rightStep); }
     assert(game.score===2 && game.foot===10, 'march alternates after neutral stance');
     packet({status:'Streaming #15 DEBUG mask=test live 0/6',joints:joints(),joints_version:30});
     $('game-mode').value='star'; changePoseGame(); startGame();
-    for(let i=0;i<11;i++) { window.testClock+=100; updateGame(avatar.joints); }
+    for(let i=0;i<11;i++) { window.testClock+=100; updateRulePose(avatar.joints); }
     const starPose=avatar.joints.map(point=>point.slice());
     starPose[16]=[-.2,.42,0]; starPose[18]=[-.5,.42,0]; starPose[22]=[-.8,.42,0];
     starPose[17]=[.2,.42,0]; starPose[19]=[.5,.42,0]; starPose[23]=[.8,.42,0];
     const singleStar=starPose.map(point=>point.slice()); singleStar[23]=avatar.joints[23].slice();
-    for(let i=0;i<9;i++) { window.testClock+=100; updateGame(singleStar); }
+    for(let i=0;i<9;i++) { window.testClock+=100; updateRulePose(singleStar); }
     assert(game.score===0, 'star hold requires both arms at shoulder height');
     const bentStar=starPose.map(point=>point.slice()); bentStar[18][1]+=.4;
-    for(let i=0;i<9;i++) { window.testClock+=100; updateGame(bentStar); }
+    for(let i=0;i<9;i++) { window.testClock+=100; updateRulePose(bentStar); }
     assert(game.score===0, 'star hold rejects bent arm even with extended hand position');
-    for(let i=0;i<9;i++) { window.testClock+=100; updateGame(starPose); }
+    for(let i=0;i<9;i++) { window.testClock+=100; updateRulePose(starPose); }
     assert(game.score===1 && game.starLower && targetMeshes.every(target=>!target.visible), 'straight level arms score star hold and hide cues');
-    for(let i=0;i<9;i++) { window.testClock+=100; updateGame(starPose); }
+    for(let i=0;i<9;i++) { window.testClock+=100; updateRulePose(starPose); }
     assert(game.score===1, 'held star pose cannot repeatedly score');
-    window.testClock+=100; updateGame(avatar.joints);
-    for(let i=0;i<4;i++) { window.testClock+=100; updateGame(starPose); }
-    window.testClock+=1000; updateGame(starPose);
+    window.testClock+=100; updateRulePose(avatar.joints);
+    for(let i=0;i<4;i++) { window.testClock+=100; updateRulePose(starPose); }
+    window.testClock+=1000; updateRulePose(starPose);
     assert(game.hold===0, 'star hold sample gap resets partial hold');
-    for(let i=0;i<9;i++) { window.testClock+=100; updateGame(starPose); }
+    for(let i=0;i<9;i++) { window.testClock+=100; updateRulePose(starPose); }
     assert(game.score===2, 'lowering both hands rearms another star hold');
     packet({status:'Streaming #16 DEBUG mask=test live 0/6',joints:joints(),joints_version:31});
     $('game-mode').value='cross'; changePoseGame(); startGame();
-    for(let i=0;i<11;i++) { window.testClock+=100; updateGame(avatar.joints); }
+    for(let i=0;i<11;i++) { window.testClock+=100; updateRulePose(avatar.joints); }
     const leftCross=avatar.joints.map(point=>point.slice());
     leftCross[4][1]+=.18; leftCross[10][1]+=.1; leftCross[23]=leftCross[4].slice();
     const rightCross=avatar.joints.map(point=>point.slice());
     rightCross[5][1]+=.18; rightCross[11][1]+=.1; rightCross[22]=rightCross[5].slice();
-    for(let i=0;i<4;i++) { window.testClock+=100; updateGame(rightCross); }
+    for(let i=0;i<4;i++) { window.testClock+=100; updateRulePose(rightCross); }
     assert(game.score===0 && game.foot===10, 'cross knee rejects unprompted side');
     const sameSideCross=leftCross.map(point=>point.slice()); sameSideCross[23]=avatar.joints[23].slice(); sameSideCross[22]=leftCross[4].slice();
-    for(let i=0;i<4;i++) { window.testClock+=100; updateGame(sameSideCross); }
+    for(let i=0;i<4;i++) { window.testClock+=100; updateRulePose(sameSideCross); }
     assert(game.score===0, 'cross knee requires opposite hand');
     const unraisedCross=avatar.joints.map(point=>point.slice()); unraisedCross[23]=unraisedCross[4].slice();
-    for(let i=0;i<4;i++) { window.testClock+=100; updateGame(unraisedCross); }
+    for(let i=0;i<4;i++) { window.testClock+=100; updateRulePose(unraisedCross); }
     assert(game.score===0, 'cross knee requires raised knee and foot');
-    for(let i=0;i<4;i++) { window.testClock+=100; updateGame(leftCross); }
+    for(let i=0;i<4;i++) { window.testClock+=100; updateRulePose(leftCross); }
     assert(game.score===1 && game.foot===11 && game.crossNeutral && !targetMeshes[0].visible, 'cross knee scores left knee touched by right hand');
-    for(let i=0;i<4;i++) { window.testClock+=100; updateGame(rightCross); }
+    for(let i=0;i<4;i++) { window.testClock+=100; updateRulePose(rightCross); }
     assert(game.score===1, 'cross knee requires neutral release before alternating');
-    window.testClock+=100; updateGame(avatar.joints);
-    for(let i=0;i<2;i++) { window.testClock+=100; updateGame(rightCross); }
-    window.testClock+=1000; updateGame(rightCross);
+    window.testClock+=100; updateRulePose(avatar.joints);
+    for(let i=0;i<2;i++) { window.testClock+=100; updateRulePose(rightCross); }
+    window.testClock+=1000; updateRulePose(rightCross);
     assert(game.hold===0, 'cross knee rejects accumulation across pose update gaps');
-    for(let i=0;i<4;i++) { window.testClock+=100; updateGame(rightCross); }
+    for(let i=0;i<4;i++) { window.testClock+=100; updateRulePose(rightCross); }
     assert(game.score===2 && game.foot===10, 'cross knee alternates after neutral stance');
     const crossBody=avatar.root, crossCamera=camera.position.clone();
     game.deadline=performance.now(); updateReachClock(performance.now());
     assert(poseRecords['cross:demo:0']===2 && roundHistory.some(entry=>entry.mode==='cross' && entry.completed) && avatar.root===crossBody && camera.position.equals(crossCamera), 'cross knee records completed round without changing shared avatar or camera');
     packet({status:'Streaming #17 DEBUG mask=test live 0/6',joints:joints(),joints_version:32});
     $('game-mode').value='guard'; changePoseGame(); startGame();
-    for(let i=0;i<11;i++) { window.testClock+=100; updateGame(avatar.joints); }
+    for(let i=0;i<11;i++) { window.testClock+=100; updateRulePose(avatar.joints); }
     const drillGuard=avatar.joints.map(point=>point.slice());
     drillGuard[22]=[-.12,.64,0]; drillGuard[23]=[.12,.64,0];
     const oneHandGuard=drillGuard.map(point=>point.slice()); oneHandGuard[23]=avatar.joints[23].slice();
-    for(let i=0;i<9;i++) { window.testClock+=100; updateGame(oneHandGuard); }
+    for(let i=0;i<9;i++) { window.testClock+=100; updateRulePose(oneHandGuard); }
     assert(game.score===0, 'guard drill requires both hands near head');
     const sameSideGuard=drillGuard.map(point=>point.slice()); sameSideGuard[23]=[-.3,.64,0];
-    for(let i=0;i<9;i++) { window.testClock+=100; updateGame(sameSideGuard); }
+    for(let i=0;i<9;i++) { window.testClock+=100; updateRulePose(sameSideGuard); }
     assert(game.score===0, 'guard drill requires hands on opposite sides of head');
     const leaningGuard=drillGuard.map(point=>point.slice()); leaningGuard[15][0]+=.35;
-    for(let i=0;i<9;i++) { window.testClock+=100; updateGame(leaningGuard); }
+    for(let i=0;i<9;i++) { window.testClock+=100; updateRulePose(leaningGuard); }
     assert(game.score===0, 'guard drill rejects uncentered torso');
-    for(let i=0;i<9;i++) { window.testClock+=100; updateGame(drillGuard); }
+    for(let i=0;i<9;i++) { window.testClock+=100; updateRulePose(drillGuard); }
     assert(game.score===1 && game.guardLower && targetMeshes.every(target=>!target.visible), 'guard drill scores stable two-handed guard');
-    for(let i=0;i<9;i++) { window.testClock+=100; updateGame(drillGuard); }
+    for(let i=0;i<9;i++) { window.testClock+=100; updateRulePose(drillGuard); }
     assert(game.score===1, 'continuous guard cannot repeatedly score');
-    window.testClock+=100; updateGame(avatar.joints);
-    for(let i=0;i<4;i++) { window.testClock+=100; updateGame(drillGuard); }
-    window.testClock+=1000; updateGame(drillGuard);
+    window.testClock+=100; updateRulePose(avatar.joints);
+    for(let i=0;i<4;i++) { window.testClock+=100; updateRulePose(drillGuard); }
+    window.testClock+=1000; updateRulePose(drillGuard);
     assert(game.hold===0, 'guard drill resets hold after sample gap');
-    for(let i=0;i<9;i++) { window.testClock+=100; updateGame(drillGuard); }
+    for(let i=0;i<9;i++) { window.testClock+=100; updateRulePose(drillGuard); }
     assert(game.score===2, 'lowering both hands rearms guard drill');
     game.deadline=performance.now(); updateReachClock(performance.now());
     assert(poseRecords['guard:demo:0']===2 && roundHistory.some(entry=>entry.mode==='guard' && entry.completed), 'guard drill stores best score and completed history');
     packet({status:'Streaming #18 DEBUG mask=test live 0/6',joints:joints(),joints_version:33});
     chooseGame('shoulder'); startGame();
-    for(let i=0;i<11;i++) { window.testClock+=100; updateGame(avatar.joints); }
+    for(let i=0;i<11;i++) { window.testClock+=100; updateRulePose(avatar.joints); }
     assert(!game.calibrating && game.score===0,'shoulder tap requires standing calibration');
     const shoulderPose=avatar.joints.map(point=>point.slice());
     shoulderPose[22]=shoulderPose[17].slice(); shoulderPose[23]=shoulderPose[16].slice();
     const sameShoulder=avatar.joints.map(point=>point.slice());
     sameShoulder[22]=sameShoulder[16].slice(); sameShoulder[23]=sameShoulder[17].slice();
-    for(let i=0;i<7;i++) { window.testClock+=100; updateGame(sameShoulder); }
+    for(let i=0;i<7;i++) { window.testClock+=100; updateRulePose(sameShoulder); }
     assert(game.score===0,'shoulder tap rejects touching the same-side shoulders');
     const singleShoulder=shoulderPose.map(point=>point.slice()); singleShoulder[23]=avatar.joints[23].slice();
-    for(let i=0;i<7;i++) { window.testClock+=100; updateGame(singleShoulder); }
+    for(let i=0;i<7;i++) { window.testClock+=100; updateRulePose(singleShoulder); }
     assert(game.score===0,'shoulder tap requires both opposite hands');
-    for(let i=0;i<6;i++) { window.testClock+=100; updateGame(shoulderPose); }
+    for(let i=0;i<6;i++) { window.testClock+=100; updateRulePose(shoulderPose); }
     assert(game.score===1 && game.shoulderRelease,'shoulder tap scores a complete hold');
-    for(let i=0;i<7;i++) { window.testClock+=100; updateGame(shoulderPose); }
+    for(let i=0;i<7;i++) { window.testClock+=100; updateRulePose(shoulderPose); }
     assert(game.score===1,'shoulder tap cannot repeatedly score while held');
-    window.testClock+=100; updateGame(singleShoulder);
+    window.testClock+=100; updateRulePose(singleShoulder);
     assert(game.shoulderRelease,'rearming requires releasing both hands');
-    window.testClock+=100; updateGame(avatar.joints);
-    for(let i=0;i<3;i++) { window.testClock+=100; updateGame(shoulderPose); }
-    window.testClock+=1000; updateGame(shoulderPose);
+    window.testClock+=100; updateRulePose(avatar.joints);
+    for(let i=0;i<3;i++) { window.testClock+=100; updateRulePose(shoulderPose); }
+    window.testClock+=1000; updateRulePose(shoulderPose);
     assert(game.hold===0,'shoulder tap resets partial hold after a sample gap');
-    for(let i=0;i<6;i++) { window.testClock+=100; updateGame(shoulderPose); }
+    for(let i=0;i<6;i++) { window.testClock+=100; updateRulePose(shoulderPose); }
     assert(game.score===2,'shoulder tap rearms after both hands release');
     game.deadline=performance.now(); updateReachClock(performance.now());
     assert(poseRecords['shoulder:demo:0']===2 && loadPoseRecords()['shoulder:demo:0']===2 && roundHistory.some(entry=>entry.mode==='shoulder' && entry.completed),'shoulder tap persists best and completed history');
     packet({status:'Streaming #19 DEBUG mask=test live 0/6',joints:joints(),joints_version:34});
     chooseGame('highfive'); startGame();
-    for(let i=0;i<11;i++) { window.testClock+=100; updateGame(avatar.joints); }
+    for(let i=0;i<11;i++) { window.testClock+=100; updateRulePose(avatar.joints); }
     const highLeft=avatar.joints.map(point=>point.slice()); highLeft[22]=[-.3,.78,0];
     const highRight=avatar.joints.map(point=>point.slice()); highRight[23]=[.3,.78,0];
-    for(let i=0;i<4;i++) { window.testClock+=100; updateGame(highRight); }
+    for(let i=0;i<4;i++) { window.testClock+=100; updateRulePose(highRight); }
     assert(game.score===0,'high five rejects using the unprompted hand');
     const bothHigh=highLeft.map(point=>point.slice()); bothHigh[23]=highRight[23].slice();
-    for(let i=0;i<4;i++) { window.testClock+=100; updateGame(bothHigh); }
+    for(let i=0;i<4;i++) { window.testClock+=100; updateRulePose(bothHigh); }
     assert(game.score===0,'high five requires the other hand below its shoulder');
     const highObstacle=new THREE.Mesh(new THREE.BoxGeometry(.12,.12,.12),new THREE.MeshBasicMaterial());
     highObstacle.position.copy(avatar.root.localToWorld(new THREE.Vector3(-.3,.78,0)));
     scene.add(highObstacle); scenePhysics.addCollider(highObstacle);
-    for(let i=0;i<4;i++) { window.testClock+=100; updateGame(highLeft); }
+    for(let i=0;i<4;i++) { window.testClock+=100; updateRulePose(highLeft); }
     assert(game.score===0 && game.hold===0 && !targetMeshes[0].visible && $('pose-game-cue').textContent.includes('擋住'),'scene obstacle blocks high-five scoring and resets hold');
     scenePhysics.removeCollider(highObstacle); scene.remove(highObstacle); highObstacle.geometry.dispose(); highObstacle.material.dispose();
-    for(let i=0;i<3;i++) { window.testClock+=100; updateGame(highLeft); }
+    for(let i=0;i<3;i++) { window.testClock+=100; updateRulePose(highLeft); }
     assert(game.score===1 && game.highFiveLower && game.highFiveSide===0,'left high five scores a stable hold');
-    for(let i=0;i<4;i++) { window.testClock+=100; updateGame(highLeft); }
+    for(let i=0;i<4;i++) { window.testClock+=100; updateRulePose(highLeft); }
     assert(game.score===1 && game.highFiveSide===0,'held high five cannot score again or switch sides');
-    window.testClock+=100; updateGame(avatar.joints);
+    window.testClock+=100; updateRulePose(avatar.joints);
     assert(game.highFiveSide===1 && !game.highFiveLower,'lowering prompted hand switches high five side');
-    window.testClock+=100; updateGame(highRight); window.testClock+=1000; updateGame(highRight);
+    window.testClock+=100; updateRulePose(highRight); window.testClock+=1000; updateRulePose(highRight);
     assert(game.hold===0,'high five cannot accumulate hold across sample gaps');
-    for(let i=0;i<3;i++) { window.testClock+=100; updateGame(highRight); }
+    for(let i=0;i<3;i++) { window.testClock+=100; updateRulePose(highRight); }
     assert(game.score===2 && game.highFiveSide===1,'right high five scores after rearming');
     game.deadline=performance.now(); updateReachClock(performance.now());
     assert(loadPoseRecords()['highfive:demo:0']===2 && roundHistory.some(entry=>entry.mode==='highfive' && entry.completed),'high five persists best and history');
@@ -1321,42 +1408,42 @@
     handPathWall.geometry.dispose(); handPathWall.material.dispose();
     packet({status:'Streaming #20 DEBUG mask=test live 0/6',joints:joints(),joints_version:35});
     chooseGame('sky'); startGame();
-    for(let i=0;i<11;i++) { window.testClock+=100; updateGame(avatar.joints); }
+    for(let i=0;i<11;i++) { window.testClock+=100; updateRulePose(avatar.joints); }
     const skyBlockedPose=avatar.joints.map(point=>point.slice());
     skyBlockedPose[22]=[-.1,.93,0]; skyBlockedPose[23]=[.1,.93,0];
     const skyObstacle=new THREE.Mesh(new THREE.BoxGeometry(.14,.14,.14),new THREE.MeshBasicMaterial());
     skyObstacle.position.copy(avatar.root.localToWorld(new THREE.Vector3(0,.93,0)));
     scene.add(skyObstacle); scenePhysics.addCollider(skyObstacle);
-    for(let i=0;i<4;i++) { window.testClock+=100; updateGame(skyBlockedPose); }
+    for(let i=0;i<4;i++) { window.testClock+=100; updateRulePose(skyBlockedPose); }
     assert(game.score===0 && game.hold===0 && !targetMeshes[0].visible && $('pose-game-cue').textContent.includes('擋住'),'Sky Catch cannot score an obstructed target');
     scenePhysics.removeCollider(skyObstacle); scene.remove(skyObstacle); skyObstacle.geometry.dispose(); skyObstacle.material.dispose();
-    for(let i=0;i<4;i++) { window.testClock+=100; updateGame(skyBlockedPose); }
+    for(let i=0;i<4;i++) { window.testClock+=100; updateRulePose(skyBlockedPose); }
     assert(game.score===1,'Sky Catch resumes scoring after obstacle removal');
     endGame('Round ended');
     packet({status:'Streaming #21 DEBUG mask=test live 0/6',joints:joints(),joints_version:36});
     chooseGame('bow'); startGame();
-    for(let i=0;i<11;i++) { window.testClock+=100; updateGame(avatar.joints); }
+    for(let i=0;i<11;i++) { window.testClock+=100; updateRulePose(avatar.joints); }
     assert(!game.calibrating && game.standingHeadOffset instanceof THREE.Vector3,'bow captures standing torso baseline after calibration');
     const rhythmBowPose=avatar.joints.map(point=>point.slice()); rhythmBowPose[15][2]=.24; rhythmBowPose[9][2]=.14;
     const headOnlyBow=rhythmBowPose.map(point=>point.slice()); headOnlyBow[9]=avatar.joints[9].slice();
-    for(let i=0;i<7;i++) { window.testClock+=100; updateGame(headOnlyBow); }
+    for(let i=0;i<7;i++) { window.testClock+=100; updateRulePose(headOnlyBow); }
     assert(game.score===0,'bow requires chest movement as well as head movement');
     const sidewaysBow=rhythmBowPose.map(point=>point.slice()); sidewaysBow[15][0]=.3;
-    for(let i=0;i<7;i++) { window.testClock+=100; updateGame(sidewaysBow); }
+    for(let i=0;i<7;i++) { window.testClock+=100; updateRulePose(sidewaysBow); }
     assert(game.score===0,'bow rejects sideways leaning');
     const crouchBow=rhythmBowPose.map(point=>point.slice()); crouchBow[0][1]=-.2; crouchBow[15][1]-=.2;
-    for(let i=0;i<7;i++) { window.testClock+=100; updateGame(crouchBow); }
+    for(let i=0;i<7;i++) { window.testClock+=100; updateRulePose(crouchBow); }
     assert(game.score===0,'bow cannot score a crouch');
-    for(let i=0;i<6;i++) { window.testClock+=100; updateGame(rhythmBowPose); }
+    for(let i=0;i<6;i++) { window.testClock+=100; updateRulePose(rhythmBowPose); }
     assert(game.score===1 && game.bowReset,'bow scores stable forward torso movement');
-    for(let i=0;i<7;i++) { window.testClock+=100; updateGame(rhythmBowPose); }
+    for(let i=0;i<7;i++) { window.testClock+=100; updateRulePose(rhythmBowPose); }
     assert(game.score===1,'holding bow cannot score repeatedly');
-    window.testClock+=100; updateGame(avatar.joints);
-    for(let i=0;i<3;i++) { window.testClock+=100; updateGame(rhythmBowPose); }
-    window.testClock+=1000; updateGame(rhythmBowPose);
+    window.testClock+=100; updateRulePose(avatar.joints);
+    for(let i=0;i<3;i++) { window.testClock+=100; updateRulePose(rhythmBowPose); }
+    window.testClock+=1000; updateRulePose(rhythmBowPose);
     assert(game.hold===0,'bow resets hold after tracking sample gap');
     const turnedBow=rhythmBowPose.map(point=>new THREE.Vector3(...point).applyAxisAngle(new THREE.Vector3(0,1,0),Math.PI/2).toArray());
-    for(let i=0;i<6;i++) { window.testClock+=100; updateGame(turnedBow); }
+    for(let i=0;i<6;i++) { window.testClock+=100; updateRulePose(turnedBow); }
     assert(game.score===2,'bow follows body-facing direction after turning');
     game.deadline=performance.now(); updateReachClock(performance.now());
     assert(loadPoseRecords()['bow:demo:0']===2 && roundHistory.some(entry=>entry.mode==='bow' && entry.completed),'bow saves completed score and round history');
@@ -1365,20 +1452,20 @@
     const realHanded=pose=>pose.map(([x,y,z])=>[-x,y,z]);
     packet({joints: joints(), joints_version: 9001}); tick(.016);
     chooseGame('bow'); startGame();
-    for(let i=0;i<11;i++) { window.testClock+=100; updateGame(realHanded(avatar.joints)); }
+    for(let i=0;i<11;i++) { window.testClock+=100; updateRulePose(realHanded(avatar.joints)); }
     const backwardBow=realHanded(avatar.joints); backwardBow[15][2]=-.24; backwardBow[9][2]=-.14;
-    for(let i=0;i<7;i++) { window.testClock+=100; updateGame(backwardBow); }
+    for(let i=0;i<7;i++) { window.testClock+=100; updateRulePose(backwardBow); }
     assert(game.state==='playing' && game.score===0, 'with real SMPL handedness, bending backwards is not a bow');
-    for(let i=0;i<7;i++) { window.testClock+=100; updateGame(realHanded(rhythmBowPose)); }
+    for(let i=0;i<7;i++) { window.testClock+=100; updateRulePose(realHanded(rhythmBowPose)); }
     assert(game.score===1, 'with real SMPL handedness, bowing forward scores');
     endGame('Round ended');
     chooseGame('dodge'); startGame();
-    for(let i=0;i<11;i++) { window.testClock+=100; updateGame(realHanded(avatar.joints)); }
+    for(let i=0;i<11;i++) { window.testClock+=100; updateRulePose(realHanded(avatar.joints)); }
     const ownLeft=realHanded(avatar.joints); ownLeft[15][0]+=.22; ownLeft[9][0]+=.11;  // +x is the body's left
     const ownRight=realHanded(avatar.joints); ownRight[15][0]-=.22; ownRight[9][0]-=.11;
-    for(let i=0;i<5;i++) { window.testClock+=100; updateGame(ownRight); }
+    for(let i=0;i<5;i++) { window.testClock+=100; updateRulePose(ownRight); }
     assert(game.score===0, 'with real SMPL handedness, leaning right does not answer "向左"');
-    for(let i=0;i<5;i++) { window.testClock+=100; updateGame(ownLeft); }
+    for(let i=0;i<5;i++) { window.testClock+=100; updateRulePose(ownLeft); }
     assert(game.score===1 && game.dodgeSide===1, 'with real SMPL handedness, leaning to the left of the body answers "向左"');
     endGame('Round ended');
     assert(audioCtx===previousAudio, 'muted game sound does not create or replace audio context');
@@ -1390,7 +1477,7 @@
     audioCtx.close(); audioCtx=audioBefore; window.AudioContext=RealAudioContext;
     $('game-sound').checked=true;
     $('game-mode').value='reach'; changePoseGame();
-    assert(game.state==='over' && $('game-btn').textContent==='開始 Reach Targets', 'game switching stops round and updates start label');
+    assert(game.state==='over' && $('game-btn').textContent==='開始 伸手碰目標', 'game switching stops round and updates start label');
     packet({status:'Streaming #10 DEBUG mask=test live 0/6',joints:joints(),joints_version:26});
     poseRecords={}; clearRoundHistory(); startGame(); game.score=7; game.deadline=performance.now(); updateReachClock(performance.now());
     assert(poseRecords['reach:demo:0']===7 && $('game-result').textContent.includes('示範資料') && $('game-result').textContent.includes('最佳 7'),
@@ -1413,8 +1500,8 @@
     showRoundResult({title:'Reach Targets',score:1,sourceLabel:'示範資料',reason:"Time's up",completed:true,best:1,newRecord:false,again:()=>{}});
     selectTab('combat');
     assert(getComputedStyle($('game-result')).display==='none', 'switching to Combat closes the pose results card');
-    selectTab('games');
-    assert(sceneEnvironment.scoreboard.value==='7' && sceneEnvironment.scoreboard.sub==='完成' && sceneEnvironment.scoreboard.title==='REACH TARGETS',
+    chooseGame('reach');
+    assert(sceneEnvironment.scoreboard.value==='7' && sceneEnvironment.scoreboard.sub==='完成' && sceneEnvironment.scoreboard.title==='伸手碰目標',
       'the hall scoreboard shows the final score');
     assert(scene.getObjectByName('aether-opponent').userData.animation==='Dance', 'outside Combat the robot celebrates a finished pose round');
     assert(roundHistory.length===1 && roundHistory[0].completed && roundHistory[0].score===7 && roundHistory[0].seconds===60, 'completed pose round enters history with duration');
@@ -1440,7 +1527,8 @@
     assert(roundHistory[0].seconds===0, 'history excludes paused time');
     startGame(); $('game-pause').click(); window.testClock+=6000;
     $('game-pause').click();
-    assert(game.state==='over' && $('game-result').textContent.includes('姿態資料過期') && $('game-pause').style.display==='none', 'stale tracking cannot resume paused round');
+    assert(game.state==='playing'&&poseContinuity.held&&$('game-pause').style.display!=='none','stale tracking retains paused round until fresh input');
+    endGame('Round ended');
     for(let i=0;i<55;i++) recordRoundHistory({mode:'combat',score:i,source:'demo:0',completed:false,reason:'Round reset.',seconds:1});
     assert(roundHistory.length===50 && roundHistory[0].score===54 && roundHistory[49].score===5 && $('history-list').children.length===10,
       'history caps storage and keeps newest ten rows visible');
@@ -1457,7 +1545,7 @@
     assert(roundHistory.length===0 && poseRecords['reach:demo:0']===7 && $('history-list').textContent.includes('還沒有回合紀錄'),
       'clear history preserves best scores');
     packet({status:'Loading model'}); selectTab('combat'); $('start-btn').click();
-    assert($('start-btn').textContent==='開始回合', 'loading state blocks combat even with cached pose');
+    assert(AetherCombat.isRunning()&&AetherCombat.isHeld(),'model loading retains a queued combat round');
     packet({status:'Streaming #9 DEBUG mask=test live 0/6'}); tick(.016);
     selectTab('combat');
     const lr = document.querySelector('#combat-view .left-stack').getBoundingClientRect();
@@ -1493,8 +1581,8 @@
     assert($('focus-btn').getAttribute('aria-pressed')==='true' && avatar.root===preservedAvatar, 'focus view preserves the body and exposes its state');
     const focusCamera=camera.position.clone();
     assert(getComputedStyle($('scene-activity')).display!=='none', 'activity switches appear on the scene while the panel is hidden');
-    $('scene-combat-btn').click();
-    assert(combatMode && document.body.classList.contains('focus-mode') && camera.position.distanceTo(focusCamera)<1e-6 && location.href===applicationUrl, 'focus toolbar switches activities without moving camera or changing URL');
+    $('game-mode').value='combat';$('game-mode').dispatchEvent(new Event('change'));
+    assert(combatMode && document.body.classList.contains('focus-mode') && camera.position.distanceTo(focusCamera)<1e-6 && location.href===applicationUrl, 'the shared game selector works in focus mode without moving camera or changing URL');
     document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}));
     assert(getComputedStyle($('panel')).display!=='none' && $('focus-btn').getAttribute('aria-pressed')==='false', 'Escape restores the control panel');
     assert(!renderer.shadowMap.enabled && renderer.getPixelRatio()<=1, 'low quality disables shadows and caps render resolution');
@@ -1925,14 +2013,14 @@
     sceneAssets.rename('Round edit check'); sceneAssets.select(sceneAssets.model.userData.assetId); sceneAssets.elevate(0);
     assert(game.state==='playing', 'selection rename and unchanged transform preserve active pose round');
     sceneAssets.elevate(.5);
-    assert(game.state==='over' && $('game-result').textContent.includes('場景改變') && roundHistory.some(entry=>entry.mode==='cross' && !entry.completed && entry.reason.includes('Scene changed')), 'physical scene edit stops pose game and records unfinished round');
+    assert(game.state==='playing','physical scene editing preserves pose round');
     selectTab('combat'); $('start-btn').click();
     sceneAssets.elevate(.75);
-    assert($('start-btn').textContent==='開始回合' && $('event-feed').textContent.includes('場景改變') && roundHistory.some(entry=>entry.mode==='combat' && !entry.completed && entry.reason.includes('Scene changed')), 'physical scene edit stops combat before edited collision can affect scoring');
+    assert(AetherCombat.isRunning(),'physical scene editing preserves combat');
     selectTab('cal'); $('game-mode').value='reach'; changePoseGame();
     $('game-mode').value='cross'; changePoseGame(); startGame();
     $('scene-collisions').checked=false; $('scene-collisions').dispatchEvent(new Event('change'));
-    assert(game.state==='over' && !scenePhysics.stats.enabled, 'changing collision enforcement stops active round');
+    assert(game.state==='playing'&&!scenePhysics.stats.enabled,'collision setting changes preserve active round');
     $('scene-collisions').checked=true; $('scene-collisions').dispatchEvent(new Event('change'));
     $('game-mode').value='reach'; changePoseGame();
     sceneAssets.clearAll();
@@ -1961,12 +2049,12 @@
     packet({runtime:{device:'cpu',pose_fps:8.4,frame_ms:104,mesh_ms:6.8}});
     assert($('pose-performance').style.color==='var(--amber)' && $('pose-performance').title.includes('動作判定可能不準') &&
       getComputedStyle($('pose-performance')).display!=='none', 'a slow pose rate is flagged and shown');
-    assert($('pose-performance').textContent==='姿態更新偏慢：每秒 8.4 個姿態', 'a slow pose rate is reported in words, without timings');
+    assert($('pose-performance').textContent==='動作更新較慢', 'a slow pose rate is reported in words, without timings');
     packet({runtime:{device:'cuda:0',pose_fps:30,frame_ms:8.5,mesh_ms:4.2}});
     packet({runtime:{device:'cpu',pose_fps:30,frame_ms:30,dropped_input_frames:100}});
     assert(!$('pose-performance').classList.contains('slow'), 'historical input drops on first connection do not claim a current overload');
     packet({runtime:{device:'cpu',pose_fps:30,frame_ms:30,dropped_input_frames:101}});
-    assert($('pose-performance').classList.contains('slow') && $('pose-performance').textContent.includes('部分動作更新已略過') &&
+    assert($('pose-performance').classList.contains('slow') && $('pose-performance').textContent.includes('更新不穩定') &&
       getComputedStyle($('pose-performance')).display!=='none', 'new input drops remain visible even when the latest output rate is normal');
     packet({runtime:{device:'cpu',pose_fps:30,frame_ms:30,dropped_input_frames:0}});
     assert(!$('pose-performance').classList.contains('slow'), 'service counter reset clears the old overload warning');
@@ -1980,9 +2068,12 @@
     reachBlocker.geometry.dispose(); reachBlocker.geometry=new THREE.BoxGeometry(3,3,3); scenePhysics.resetAll();
     assert(spawnTargetPos()===null, 'fully blocked reach volume returns no unreachable target');
     $('game-mode').value='reach'; changePoseGame(); startGame();
-    assert(game.state==='over' && targetMeshes.every(target=>!target.visible) && $('game-result').textContent.includes('伸手範圍被擋住'), 'blocked scene ends reach startup with visible explanation and no hidden target');
+    assert(game.state==='playing'&&targetMeshes.every(target=>!target.visible),'blocked targets wait for space without ending reach');
     Math.random=originalRandom; scenePhysics.removeCollider(reachBlocker); scene.remove(reachBlocker);
     reachBlocker.geometry.dispose(); reachBlocker.material.dispose();
+    updateRulePose(avatar.joints);
+    assert(game.state==='playing'&&targetMeshes.some(target=>target.visible),'reach automatically restores targets when blocked space clears');
+    endGame('Round ended');
     const previousHistory=roundHistory; roundHistory=[];
     recordRoundHistory({mode:'star',score:9,source:'live:6',completed:true,reason:'Time expired',seconds:60});
     recordRoundHistory({mode:'star',score:2,source:'demo:0',completed:false,reason:'Round ended',seconds:3});
@@ -2097,7 +2188,7 @@
     localStorage.setItem(lastTrainingKey,'broken'); assert(loadLastTrainingReport()===null,'corrupt training report is safely ignored');
     localStorage.setItem(lastTrainingKey,persistedTraining);
     lastTrainingReport=loadLastTrainingReport(); renderLastTrainingReport();
-    assert(lastTrainingReport.rounds.length===3 && $('last-training-status').textContent.includes('Clap Pulse'),'completed report reloads independently of current training');
+    assert(lastTrainingReport.rounds.length===3 && $('last-training-status').textContent.includes('拍手'),'completed report reloads independently of current training');
     $('pose-circuit').value='lower'; startPoseCircuit(); chooseGame('reach');
     assert(!poseCircuit,'choosing a different game exits circuit');
     $('pose-circuit').value='mixed'; startPoseCircuit(); selectTab('combat');
@@ -2106,7 +2197,7 @@
     assert(game.state==='over' && !poseCircuit && roundHistory[0].reason==='Training ended','manual circuit stop records unfinished round');
     const savedCustomCircuit=localStorage.getItem(customCircuitKey);
     $('pose-circuit').value='custom'; $('pose-circuit').dispatchEvent(new Event('change'));
-    assert(!$('custom-circuit-controls').hidden && [0,1,2].every(index=>$(`custom-circuit-${index}`).options.length===13),'custom circuit exposes all Pose games in three stages');
+    assert(!$('custom-circuit-controls').hidden && [0,1,2].every(index=>$(`custom-circuit-${index}`).options.length===16),'custom circuit exposes all Pose games in three stages');
     ['star','sky','guard'].forEach((mode,index)=>{$(`custom-circuit-${index}`).value=mode;}); saveCustomCircuit();
     assert(loadCustomCircuit().join(',')==='star,sky,guard','custom circuit persists ordered game choices');
     startPoseCircuit();
@@ -2123,6 +2214,89 @@
     $('pose-circuit').value='upper'; showCustomCircuit();
     assert($('custom-circuit-controls').hidden,'preset circuit hides custom editing controls');
     const captureCamera=camera.position.clone(),captureBody=avatar.root,captureLoop=window.testRafRequests;
+    const reactionNeutral={raised:0,neutral:true},reactionArm=()=>{
+      const state=ReactionGame.create();for(let t=0;t<=800;t+=100) ReactionGame.step(state,reactionNeutral,t,()=>0);return state;
+    };
+    const reactionCorrect=reactionArm();
+    assert(reactionCorrect.phase==='signal' && reactionCorrect.target===1,'reaction game waits for neutral hands then presents a random cue');
+    const correctEvent=ReactionGame.step(reactionCorrect,{raised:1,neutral:false},1000,()=>0);
+    assert(correctEvent.kind==='correct' && correctEvent.ms===200 && reactionCorrect.correct===1 && reactionCorrect.bestMs===200,'reaction correct hand records observed response time');
+    ReactionGame.step(reactionCorrect,{raised:1,neutral:false},1100,()=>0);
+    assert(reactionCorrect.correct===1 && reactionCorrect.phase==='release','holding a raised hand cannot score repeatedly');
+    const reactionEarly=ReactionGame.create();ReactionGame.step(reactionEarly,reactionNeutral,0,()=>0);ReactionGame.step(reactionEarly,{raised:2,neutral:false},100,()=>0);
+    assert(reactionEarly.early===1 && reactionEarly.correct===0,'reaction premature motion is counted separately');
+    const reactionWrong=reactionArm();ReactionGame.step(reactionWrong,{raised:2,neutral:false},900,()=>0);
+    assert(reactionWrong.wrong===1 && reactionWrong.correct===0,'reaction wrong hand does not score');
+    const reactionMiss=reactionArm();for(let t=900;t<=3300;t+=100) ReactionGame.step(reactionMiss,reactionNeutral,t,()=>0);
+    assert(reactionMiss.missed===1 && reactionMiss.phase==='release','reaction timeout is counted once');
+    const reactionBoth=ReactionGame.create();for(let t=0;t<=2000;t+=100) ReactionGame.step(reactionBoth,reactionNeutral,t,()=>.999);
+    ReactionGame.step(reactionBoth,{raised:1,neutral:false},2100,()=>.999);ReactionGame.step(reactionBoth,{raised:3,neutral:false},2200,()=>.999);
+    assert(reactionBoth.target===3 && reactionBoth.correct===1 && reactionBoth.wrong===0,'two-hand cue permits one hand to rise before the other');
+    const reactionStale=reactionArm();ReactionGame.step(reactionStale,{raised:1,neutral:false},2000,()=>0);
+    assert(reactionStale.correct===0 && reactionStale.phase==='release','pose gaps reset reaction timing rather than recording false latency');
+    packet({status:'Streaming #900 DEBUG mask=test live 0/6',joints:joints(),joints_version:9000});chooseGame('reaction');startGame();game.calibrating=false;
+    updateReactionGame(joints(),performance.now());
+    assert(game.mode==='reaction' && !$('reaction-hud').hidden && $('game-guide').textContent.includes('燈號'),'reaction game has its own selectable rules and visible signal HUD');
+    game.reaction=reactionArm();game.score=0;
+    const reactionLeft=joints();reactionLeft[20][1]=reactionLeft[16][1]+.3;
+    updateReactionGame(reactionLeft,1000);
+    assert(game.score===1 && $('reaction-message').textContent.includes('200 ms'),'fresh hand pose feeds reaction rules and updates score with observed time');
+    endGame();assert($('reaction-hud').hidden && $('game-result').textContent.includes('系統觀測反應') && roundHistory[0].mode==='reaction','reaction result contains timing breakdown and round history');
+    assert(validReactionStats(roundHistory[0].reactionStats) && parseHistoryBackup(JSON.stringify({version:1,rounds:[roundHistory[0]]}))[0].reactionStats.correct===1,'reaction breakdown survives JSON backup validation');
+    dismissRoundResult();chooseGame('memory');
+    const bodyHistory=JSON.stringify(roundHistory),bodyBest=JSON.stringify(poseRecords);
+    assert(startBodyReplay()&&$('body-replay').open,'body replay opens from the shared lobby without trackers');
+    const replayStart=performance.now();for(let frame=0;frame<120;frame++)tickBodyReplay(replayStart+frame*100);
+    assert(bodyReplay.score>0&&$('body-replay-figure').querySelectorAll('line').length===23,'memory replay feeds full joint poses through the shared rules and renders a body');
+    $('body-replay').close();bodyReplay=null;
+    assert(JSON.stringify(roundHistory)===bodyHistory&&JSON.stringify(poseRecords)===bodyBest,'synthetic body replay never enters ranked records');
+    for(const mode of ['memory','freeze']) {
+      packet({status:'Streaming #900 DEBUG mask=test live 0/6',joints:joints(),joints_version:9100+(mode==='freeze'?1:0)});
+      chooseGame(mode);startGame();
+      for(let frame=0;frame<15;frame++){window.testClock+=100;updateRulePose(joints());}
+      assert(!game.calibrating&&game.state==='playing',`${mode} completes the real standing calibration`);
+      game.bodyGame.random=()=>0;game.bodyGame.sequence=[0];
+      for(let frame=0;frame<120;frame++){
+        const sample=joints();
+        if(mode==='memory'&&game.bodyGame.phase==='answer')for(const joint of [3,6,9,12,13,14,15,16,17,18,19,20,21,22,23])sample[joint][0]-=.2;
+        if(mode==='freeze'&&['green','preview'].includes(game.bodyGame.phase))sample[Math.floor(frame/4)%2?10:11][1]+=.12;
+        window.testClock+=100;updateRulePose(sample);
+      }
+      assert(game.score>0&&game.bodyGame.round>0,`${mode} scores actual joint input through updateGame`);
+      const completedBodyRounds=game.bodyGame.round,bodyMistakes=game.bodyGame.mistakes;
+      endGame();
+      assert(roundHistory[0].mode===mode&&roundHistory[0].bodyStats.rounds===completedBodyRounds&&$('game-result').textContent.includes(`失誤 ${bodyMistakes}`),`${mode} uses shared result and history with mode statistics`);
+      const restored=parseHistoryBackup(JSON.stringify({version:1,rounds:[roundHistory[0]]}));
+      assert(restored[0].bodyStats.mistakes===bodyMistakes,`${mode} statistics survive backup validation`);
+      dismissRoundResult();
+    }
+    packet({joints:joints(),joints_version:9199});
+    dismissRoundResult();$('pose-score-goal').value='3';saveScoreGoal();chooseGame('reach');startGame();game.score=3;renderGameStats();
+    assert(game.goalReached && $('game-goal-progress').textContent.includes('達成') && game.state==='playing','score goal celebrates achievement without ending the timed round');
+    $('pose-score-goal').value='5';saveScoreGoal();assert(game.goal===3,'changing target affects next round, not current challenge');
+    endGame('Round ended');$('pose-score-goal').value='0';saveScoreGoal();
+    packet({joints:joints(),joints_version:9001});$('circuit-auto').checked=true;$('circuit-rest').value='10';startPoseCircuit();game.calibrating=false;endGame();
+    assert(poseCircuit.waiting && poseCircuit.restUntil===performance.now()+10000 && !$('circuit-auto-cancel').hidden,'auto circuit schedules an explicit rest after completed round');
+    window.testClock+=10000;packet({joints:joints(),joints_version:9002});tickPoseCircuit();
+    assert(poseCircuit.index===1 && game.state==='playing' && !poseCircuit.waiting,'auto circuit starts next stage when fresh and ready after rest');
+    game.calibrating=false;endGame();cancelCircuitAuto();
+    window.testClock+=11000;tickPoseCircuit();
+    assert(poseCircuit.index===1 && poseCircuit.waiting && game.state==='over','cancelling automatic transition leaves manual continuation available');
+    stopPoseCircuit();$('circuit-auto').checked=false;chooseGame('reach');
+    chooseGame('reaction');
+    const practiceHistory=JSON.stringify(roundHistory),practiceBest=JSON.stringify(poseRecords);
+    assert(startReactionPractice() && $('reaction-practice').open,'reaction keyboard practice opens without requiring a tracker round');
+    reactionPractice.rules=reactionArm();reactionPractice.rules.lastAt=performance.now();reactionPractice.rules.cueAt=performance.now()-200;
+    document.dispatchEvent(new KeyboardEvent('keydown',{key:'a',bubbles:true,cancelable:true}));
+    assert(reactionPractice.rules.correct===1 && $('reaction-practice-stats').textContent.includes('正確 1'),'keyboard practice uses the same reaction rules and scores a correct key');
+    document.dispatchEvent(new KeyboardEvent('keyup',{key:'a',bubbles:true,cancelable:true}));closeReactionPractice();
+    assert(!reactionPractice && JSON.stringify(roundHistory)===practiceHistory && JSON.stringify(poseRecords)===practiceBest,'closing keyboard practice leaves motion history and best scores unchanged');
+    chooseGame('reach');
+    packet({joints:joints(),joints_version:9003});$('circuit-auto').checked=true;startPoseCircuit();game.calibrating=false;endGame();window.testClock+=10000;tickPoseCircuit();
+    assert(poseCircuit.waiting&&poseCircuit.index===0&&poseCircuit.auto&&$('circuit-status').textContent.includes('等待動作資料'),'auto circuit waits for input without cancelling the plan');
+    packet({joints:joints(),joints_version:9004});window.testClock+=300;tickPoseCircuit();
+    assert(poseCircuit.index===1&&game.state==='playing','auto circuit continues after fresh input returns');
+    stopPoseCircuit();$('circuit-auto').checked=false;chooseGame('reach');
     document.body.dataset.captureStage='capture';
     const scenePng=await captureSceneImage();
     document.body.dataset.captureStage='bytes';
@@ -2154,23 +2328,49 @@
     assert(roundHistory[0].combatStats.attempts===0,'ordinary foot lifting is not counted as a kick attempt');
     const previousKickRandom=Math.random; Math.random=()=>.99;
     $('reset-btn').click(); packet({joints:joints(),joints_version:6002}); $('start-btn').click();
-    const kickSetup=joints(); kickSetup[10]=[.5,-.65,-.14]; kickSetup[7]=[.3,-.7,-.14];
+    const kickSetup=joints(); kickSetup[10]=combatPoint([.5,-.65,-.14]); kickSetup[7]=combatPoint([.3,-.7,-.14]);
     tick(.4); packet({joints:kickSetup,joints_version:6003});
-    const kickForward=joints(); kickForward[10]=[.85,-.5,-.14]; kickForward[7]=[.6,-.55,-.14];
+    const kickForward=joints(); kickForward[10]=combatPoint([.85,-.5,-.14]); kickForward[7]=combatPoint([.6,-.55,-.14]);
     tick(.04); packet({joints:kickForward,joints_version:6004});
     assert(+$('enemy-hp-text').textContent<100,'forward raised-foot kick still damages enemy leg target');
     const kickHp=+$('enemy-hp-text').textContent;
     tick(.7); packet({joints:kickForward,joints_version:6005});
-    const kickReturn=kickForward.map(point=>point.slice()); kickReturn[10][0]=.7; kickReturn[7][0]=.45;
+    const kickReturn=kickForward.map(point=>point.slice()); kickReturn[10][2]=.7; kickReturn[7][2]=.45;
     tick(.04); packet({joints:kickReturn,joints_version:6006});
     assert(+$('enemy-hp-text').textContent===kickHp,'retracting foot does not create a second kick');
     AetherCombat.stopRound('Round ended'); Math.random=previousKickRandom; selectTab('cal');
+    const positionAvatar=createAetherAvatar(scene);
+    const translatedBody=joints().map(p=>[p[0]+2,p[1],p[2]+3]);
+    positionAvatar.onJoints(translatedBody);positionAvatar.setCameraPosition([.3,0,-.4]);
+    let worldHip=positionAvatar.root.localToWorld(new THREE.Vector3(...translatedBody[0]));
+    assert(Math.abs(worldHip.x-1.4)<1e-6&&Math.abs(worldHip.z+.4)<1e-6,'camera position replaces model root translation in training world coordinates');
+    positionAvatar.setMode(true);worldHip=positionAvatar.root.localToWorld(new THREE.Vector3(...translatedBody[0]));
+    assert(Math.abs(worldHip.x-(positionAvatar.combatX+.3*.96))<1e-6&&Math.abs(worldHip.z+.4*.96)<1e-6,'camera translation survives Combat bone centering and scale');
+    const nextBody=translatedBody.map(p=>[p[0]+1,p[1],p[2]+1]);positionAvatar.onJoints(nextBody);
+    worldHip=positionAvatar.root.localToWorld(new THREE.Vector3(...nextBody[0]));
+    assert(Math.abs(worldHip.x-(positionAvatar.combatX+.3*.96))<1e-6,'model drift is cancelled at packet time while articulated joints remain shared');
+    assert(!positionAvatar.setCameraPosition([NaN,0,0]),'invalid camera translation cannot enter the shared root');
+    scene.remove(positionAvatar.root);positionAvatar.root.traverse(o=>{if(o.geometry)o.geometry.dispose();if(o.material)o.material.dispose();});
+    chooseGame('reach');packet({status:'Streaming #900 DEBUG mask=test live 0/6',joints:joints(),joints_version:9900});
+    renderCameraAnchor({enabled:true,state:'ready',aligned:false,can_score:false,message:'Wait for origin',epoch:0});startGame();
+    assert(game.state==='playing','camera setup does not gate body gameplay');
+    renderCameraAnchor({enabled:true,state:'tracking',aligned:true,can_score:true,position:[0,0,0],epoch:1,message:'Tracking'});startGame();
+    assert(game.state==='playing','a valid camera anchor allows a normal pose round');
+    renderCameraAnchor({enabled:true,state:'lost',aligned:true,can_score:false,position:[0,0,0],epoch:1,message:'Lost'});
+    assert(game.state==='playing','camera occlusion holds the last position without stopping body play');
+    packet({camera_error:'Camera command failed'});renderCameraAnchor({enabled:true,state:'lost',aligned:true,can_score:false,position:[0,0,0],epoch:1,message:'Lost'});
+    assert($('anchor-notice').textContent==='Camera command failed','camera command errors survive repeated anchor heartbeats');
+    cameraAnchorError='';
+    renderCameraAnchor({enabled:true,state:'tracking',aligned:true,can_score:true,position:[0,0,0],epoch:1,message:'Tracking'});
+    window.testClock+=600;tickCameraAnchor();
+    assert(!cameraAnchorState.can_score,'missing anchor heartbeats invalidate position even if inference continues');
+    renderCameraAnchor({enabled:false,state:'off',message:'Off'});packet({joints:joints(),joints_version:9901});
     const loseContext=renderer.getContext().getExtension('WEBGL_lose_context');
     selectTab('games'); dismissRoundResult(); startGame();
     loseContext.loseContext();
     await new Promise(resolve=>setTimeout(resolve,50));
-    assert(game.state==='over' && $('game-result').textContent.includes('3D 畫面中斷') && $('panel-notice-text').textContent.includes('正在恢復'),
-      'a lost WebGL context ends the round and says the 3D view is recovering');
+    assert(game.state==='playing'&&poseContinuity.held&&$('panel-notice-text').textContent.includes('正在恢復'),
+      'WebGL loss retains the round and says the view is recovering');
     loseContext.restoreContext();
     await new Promise(resolve=>setTimeout(resolve,50));
     assert($('panel-notice-text').textContent.includes('已恢復') && !renderer.getContext().isContextLost(), 'a restored WebGL context is announced');

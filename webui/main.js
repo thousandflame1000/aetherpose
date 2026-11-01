@@ -46,7 +46,8 @@ function toggleAdvancedTabs() {
   selectTab(ADVANCED_TABS.includes(currentTab) ? 'cal' : lastAdvancedTab);
 }
 function selectTab(name) {
-  if (name === 'games') updateGameLibrary();  // best scores follow the current input source
+  if (name==='combat') { chooseGame('combat'); return; } // old bookmarks and callers
+  if (!['cal','games',...ADVANCED_TABS].includes(name)) name='cal';
   const advanced = ADVANCED_TABS.includes(name);
   currentTab = name;
   if (advanced) lastAdvancedTab = name;
@@ -61,7 +62,8 @@ function selectTab(name) {
   });
   document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === 'page-' + name));
   document.getElementById('content').scrollTop = 0;
-  setCombatMode(name === 'combat');
+  setCombatMode(document.getElementById('game-mode').value==='combat');
+  updateGameLibrary();
   try { sessionStorage.setItem(TAB_STORAGE_KEY, name); } catch {}  // a reload reopens this tab
 }
 const TAB_STORAGE_KEY = 'aetherpose-tab';
@@ -83,13 +85,15 @@ document.querySelectorAll('.tab').forEach(tabEl => {
 document.addEventListener('visibilitychange', () => {
   reportPageVisibility();
   AetherCombat.setSuspended(document.hidden);
-  if (document.hidden && game.state === 'playing') endGame('Tab hidden');
+  refreshPoseContinuity();
 });
 
 // ── Init ───────────────────────────────────────────────────────────────────
 const initialSceneSettings=loadSceneSettings();
 loadSoundSetting();
+loadScoreGoal();
 buildGameLibrary();
+changePoseGame();
 fillShakeBones();
 buildCustomCircuit();
 renderLastTrainingReport();
@@ -109,11 +113,20 @@ function finishBootSplash() {
 setTimeout(finishBootSplash,4000);
 // Accept old bookmarks and run.ps1 -Combat, then normalize to the single
 // application URL. Otherwise a reload reopens the tab this browser tab was on.
-if (location.hash === '#combat') {
+if(location.hash==='#games') {
+  selectTab('games');
+  history.replaceState(null,'',location.pathname+location.search);
+} else if (location.hash === '#camera') {
+  selectTab('cal');
+  document.getElementById('camera-position-card').open=true;
+  document.getElementById('camera-position-card').scrollIntoView({block:'start'});
+  history.replaceState(null,'',location.pathname+location.search);
+} else if (location.hash === '#combat') {
   selectTab('combat');
   history.replaceState(null, '', location.pathname + location.search);
 } else {
   let savedTab = null;
   try { savedTab = sessionStorage.getItem(TAB_STORAGE_KEY); } catch {}
-  if (savedTab && savedTab !== 'cal' && document.querySelector(`.tab[data-tab="${CSS.escape(savedTab)}"]`)) selectTab(savedTab);
+  if(savedTab==='combat') chooseGame('combat');
+  else if (savedTab && savedTab !== 'cal' && document.querySelector(`.tab[data-tab="${CSS.escape(savedTab)}"]`)) selectTab(savedTab);
 }

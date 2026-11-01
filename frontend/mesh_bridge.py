@@ -1,7 +1,7 @@
 """
 mesh_bridge.py — headless service, no window, no GUI at all.
 
-Runs the TransPose neural-net pose estimator (still PyTorch, still
+Runs the variable-count visual/IMU fusion and optional GlobalPose worker (still
 Python — a browser can't run that) and re-broadcasts its output over its
 own WebSocket so the web UI (webui/index.html) can draw the TP joint
 skeleton and skin the SMPL body mesh: the mesh's triangles and skinning
@@ -24,7 +24,8 @@ import time
 import websockets
 
 from ws_client import WsClient
-from transpose_runner import TransPoseRunner
+from hybrid_runner import HybridRunner
+from camera_anchor import CameraAnchor
 
 WS_BACKEND  = "ws://127.0.0.1:9009/ws"
 BRIDGE_HOST = "127.0.0.1"
@@ -32,7 +33,9 @@ BRIDGE_PORT = 9010
 HEARTBEAT_SECONDS = 0.5
 SNAPSHOT_STALE_SECONDS = 1.0
 
-tp        = TransPoseRunner()
+tp        = HybridRunner()
+camera_anchor = CameraAnchor()
+camera_anchor.on_pose = tp.push_camera
 ws_client = WsClient(WS_BACKEND)
 CLIENTS: set = set()
 HIDDEN: set = set()  # clients whose page is in a background browser tab
@@ -167,6 +170,7 @@ async def _broadcaster():
             pose, version, status, runtime_stats = tp.get_frame_if_new(-1 if heartbeat_due else last_pose_v)
             if pose is not None: last_pose_v = version
             payload = {"status": status}
+            payload['position_anchor'] = camera_anchor.snapshot()
             if runtime_stats is not None: payload['runtime'] = runtime_stats
             calibration = getattr(tp, 'body_calibration_state', None)
             if callable(calibration): payload['calibration'] = calibration()
@@ -216,6 +220,27 @@ async def _broadcaster():
             print(f"[mesh_bridge] broadcast tick error (continuing): {e}")
 
 
+async def _camera_broadcaster():
+    """Position/health never wait for a slow or unavailable neural-net frame."""
+    previous_enabled=False
+    preview_version=0
+    while True:
+        await asyncio.sleep(.05)
+        state=camera_anchor.snapshot()
+        enabled=state.get('enabled',False)
+        if not enabled and not previous_enabled:continue
+        previous_enabled=enabled
+        if not CLIENTS:continue
+        payload={'position_anchor':state}
+        preview_version,preview=camera_anchor.preview(preview_version)
+        if preview:payload['camera_preview']=preview
+        message=json.dumps(payload,separators=(',',':'))
+        async def send(client):
+            try:await asyncio.wait_for(client.send(message),.25)
+            except Exception:pass
+        await asyncio.gather(*(send(c) for c in list(CLIENTS)))
+
+
 async def _handler(websocket):
     CLIENTS.add(websocket)
     try:
@@ -224,6 +249,7 @@ async def _handler(websocket):
             await websocket.send(json.dumps(_topology(faces), separators=(",", ":")))
         pose, version, status, runtime_stats = tp.get_frame_if_new(-1)
         payload = {"status": status}
+        payload['position_anchor'] = camera_anchor.snapshot()
         if runtime_stats is not None: payload['runtime'] = runtime_stats
         if pose is not None:
             payload.update(_pose_fields(pose, version))
@@ -243,6 +269,25 @@ async def _handler(websocket):
                     print("[mesh_bridge] body calibration started", flush=True)
                 elif command == "cancel_body_calibration":
                     tp.cancel_body_calibration()
+                elif command == 'align_camera_pose':
+                    try:
+                        tp.align_camera()
+                        await websocket.send(json.dumps({'hybrid_notice':'相機方向已對齊。'}))
+                    except ValueError as exc:
+                        await websocket.send(json.dumps({'hybrid_notice':str(exc)}))
+                elif command == 'configure_tracking':
+                    try:
+                        options=tp.configure_tracking(stabilize=message.get('stabilize'),constraints=message.get('constraints'))
+                        await websocket.send(json.dumps({'hybrid_notice':'即時追蹤設定已更新。','tracking_options':options,'runtime':tp.get_runtime_stats()},ensure_ascii=False))
+                    except (ValueError,TypeError) as exc:
+                        await websocket.send(json.dumps({'hybrid_notice':str(exc)},ensure_ascii=False))
+                elif command == 'camera_anchor':
+                    try:
+                        if message.get('action') in ('start','stop') and hasattr(tp,'reset_camera_alignment'):
+                            tp.reset_camera_alignment()
+                        await asyncio.to_thread(camera_anchor.command, message)
+                    except (ValueError, TypeError, OverflowError) as exc:
+                        await websocket.send(json.dumps({'camera_error':str(exc)},ensure_ascii=False))
             except (ValueError, AttributeError, TypeError):
                 pass
     except websockets.exceptions.ConnectionClosed:
@@ -250,6 +295,10 @@ async def _handler(websocket):
     finally:
         CLIENTS.discard(websocket)
         HIDDEN.discard(websocket)
+        if not CLIENTS and camera_anchor.snapshot().get('enabled'):
+            # Closing the last local page releases the camera device.
+            try: camera_anchor.command({'action':'stop'})
+            except ValueError: pass
 
 
 async def main():
@@ -258,6 +307,7 @@ async def main():
     tp.on_new_frame = lambda: loop.call_soon_threadsafe(NEW_FRAME.set)
     threading.Thread(target=_pump_backend, daemon=True, name="pump-backend").start()
     asyncio.create_task(_broadcaster())
+    asyncio.create_task(_camera_broadcaster())
     # No permessage-deflate: the pages are on this machine, and compressing every pose and mesh
     # once per client took about a quarter of a core from the thread the model shares the GIL with.
     async with websockets.serve(_handler, BRIDGE_HOST, BRIDGE_PORT, process_request=_check_origin,

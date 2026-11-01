@@ -1,0 +1,50 @@
+{
+  "passed": true,
+  "recorded_rgb_frames_processed": 90,
+  "camera_hz": 5.0,
+  "virtual_imu_hz": 30.0,
+  "seconds": 18.0,
+  "results": {
+    "0": {
+      "new_poses": 64,
+      "imu_counts": [
+        0
+      ],
+      "fully_blocked_steps_without_camera": 60,
+      "new_heading_feedback_during_full_block": 0,
+      "median_runner_cpu_ms": 0.03,
+      "p95_runner_cpu_ms": 12.99
+    },
+    "2": {
+      "new_poses": 540,
+      "imu_counts": [
+        2
+      ],
+      "fully_blocked_steps_without_camera": 60,
+      "new_heading_feedback_during_full_block": 0,
+      "median_runner_cpu_ms": 10.89,
+      "p95_runner_cpu_ms": 16.71
+    },
+    "6": {
+      "new_poses": 540,
+      "imu_counts": [
+        6
+      ],
+      "fully_blocked_steps_without_camera": 60,
+      "new_heading_feedback_during_full_block": 0,
+      "median_runner_cpu_ms": 11.34,
+      "p95_runner_cpu_ms": 17.64
+    },
+    "19": {
+      "new_poses": 540,
+      "imu_counts": [
+        19
+      ],
+      "fully_blocked_steps_without_camera": 60,
+      "new_heading_feedback_during_full_block": 0,
+      "median_runner_cpu_ms": 9.68,
+      "p95_runner_cpu_ms": 14.52
+    }
+  },
+  "notes": "Virtual timestamps drive replay, CPU durations are real wall time. Raw 33-point MediaPipe observations enter HybridRunner.push_camera. Mounted noisy IMUs are generated from fixture truth, never used as camera skeletons. No gyro is fabricated, so GP is separately verified by its native runtime test. This is software/source/kinematic validation, not human accuracy."
+}
