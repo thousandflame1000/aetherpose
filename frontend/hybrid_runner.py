@@ -1,6 +1,7 @@
 """Single-camera + any available assigned IMUs, with optional six-IMU GP prior."""
 import threading
 import time
+import os
 from typing import NamedTuple
 import numpy as np
 from scipy.spatial.transform import Rotation
@@ -10,6 +11,9 @@ from smpl_fk import SMPLForwardKinematics
 from hybrid_fusion import BONE_TO_JOINT, GP_BONES, RotationFusion, landmarks_to_smpl, heading_from_camera, head_orientation
 from globalpose_client import GlobalPoseClient
 from tracking_fusion import RealtimeFusion
+from camera_alignment import estimate_camera_alignment
+from hybrid_fusion import image_landmarks_to_smpl
+from cpu_latency import configure_cpu_latency
 
 
 class Pose(NamedTuple):
@@ -20,15 +24,16 @@ class Pose(NamedTuple):
 
 class HybridRunner:
     def __init__(self):
+        self.cpu_policy=configure_cpu_latency(os.environ.get('AETHER_WINDOWS_LATENCY','1')=='1')
         self._lock=threading.RLock();self._calib_lock=threading.RLock()
         self.body=body_calibration.BodyCalibration()
         self._status='Loading hybrid…';self._pose=None;self._version=0
         self._faces=self._skin=self.fusion=None
         self._generic_body=False
-        self.camera=None;self.camera_head=None;self.alignment=None;self._last_sensors={};self.gp=None
+        self.camera=None;self.camera_head=None;self.camera_image=None;self.alignment=None;self._last_sensors={};self.gp=None
         self._rotations=np.tile(np.eye(3),(24,1,1));self._origin=None;self._translation=np.zeros(3);self._gp_epoch=None
         self.on_new_frame=None;self.stats={'device':'cpu','pose_fps':0.,'frame_ms':0.,'model':'hybrid',
-            'imu_count':0,'uncalibrated':0,'camera':False,'camera_aligned':False,'globalpose':False}
+            'imu_count':0,'uncalibrated':0,'camera':False,'camera_aligned':False,'globalpose':False,'cpu_latency':self.cpu_policy}
         self._last_at=None;self._gp_valid=False;self._gp_signature=None;self._last_camera_at=None;self._last_calibrated_at=None
         self._tracking=None;self._tracking_options=dict(stabilize=True,constraints=True)
         self._input_ids=None;self._last_gp_translation=None
@@ -96,17 +101,21 @@ class HybridRunner:
         with self._lock:
             self.camera=None if observation is None else (*landmarks_to_smpl(*observation),at)
             self.camera_head=None if observation is None else head_orientation(*observation)
+            image=None if observation is None else getattr(observation,'image_points',None)
+            size=None if observation is None else getattr(observation,'image_size',None)
+            self.camera_image=None if image is None or size is None else image_landmarks_to_smpl(image,getattr(observation,'image_confidence',observation[1]),size)
 
     def reset_camera_alignment(self):
-        with self._lock:self.camera=None;self.camera_head=None;self.alignment=None;self._reset_tracking()
+        with self._lock:self.camera=None;self.camera_head=None;self.camera_image=None;self.alignment=None;self._reset_tracking()
 
     def align_camera(self):
         with self._lock:
             if self.camera is None or time.monotonic()-self.camera[2]>.3:
                 raise ValueError('請先開啟影像骨架，讓全身入鏡。')
             q,c,_=self.camera
-            target=next((self._last_sensors[j] for j in (0,9,15) if j in self._last_sensors),np.eye(3))
-            self.alignment=target@heading_from_camera(q,c).T
+            if self.fusion is None:raise ValueError('人體骨架尚未初始化。')
+            self.alignment,details=estimate_camera_alignment(self.fusion,self._last_sensors,q,c)
+            self.stats['camera_alignment']=details
             self._reset_tracking()
         return True
 
@@ -174,7 +183,7 @@ class HybridRunner:
             camera=self.camera
             fresh=camera is not None and 0<=started-camera[2]<=.3 and np.sum(camera[1]>=.65)>=8
             # Camera-only works immediately in camera space. IMU+camera needs
-            # an explicit standing alignment to share the calibrated heading.
+            # an explicit measured-bone alignment to share the calibrated heading.
             fused_camera=None
             if fresh and (not sensors or self.alignment is not None):
                 q,c,at=camera
@@ -202,7 +211,9 @@ class HybridRunner:
             # Windows/Python 3.12 monotonic() can repeat within a clock tick.
             # Use the real high-resolution clock for integration intervals;
             # camera freshness and GP protocol keep their existing timebase.
-            raw,rotations,observed,yaw=self._tracking.step(self._rotations,fused_camera,sensors,camera_axes,base,started_perf,camera_at)
+            camera_basis=None if fused_camera is None else (np.eye(3) if self.alignment is None else self.alignment)
+            raw,rotations,observed,yaw=self._tracking.step(self._rotations,fused_camera,sensors,camera_axes,base,started_perf,camera_at,
+                camera_basis=camera_basis,camera_image=self.camera_image if fused_camera is not None else None)
             self._rotations=raw
             self.stats.update(self._tracking.diagnostics)
             translation=self._translation.copy()
@@ -227,7 +238,10 @@ class HybridRunner:
                 # Ground the visual avatar by its lowest foot so crouching
                 # does not leave it floating at its standing pelvis height.
                 # This is a display/contact assumption, never jump-height data.
-                translation[1]=self.fusion.foot_floor_translation(rotations,relative_joints)
+                torso=relative_joints[12]-relative_joints[0]
+                upright=abs(torso[1])/max(np.linalg.norm(torso),1e-9)>.65
+                translation[1]=(self.fusion.foot_floor_translation if upright else self.fusion.body_floor_translation)(rotations,relative_joints)
+                self.stats['camera_floor_contact']='feet' if upright else 'body_surface'
                 self._translation=translation.copy();camera_grounded=True
             self.stats['camera_floor_assumption']=camera_grounded
             joints=relative_joints+translation

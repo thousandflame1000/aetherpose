@@ -5,6 +5,38 @@ import app_paths
 import numpy as np
 
 
+class PoseObservation(tuple):
+    """Legacy two-item observation with optional original image measurements."""
+    def __new__(cls,world,confidence,image_points=None,image_size=None):
+        value=super().__new__(cls,(world,confidence))
+        value.image_points=None if image_points is None else np.asarray(image_points,float).copy()
+        value.image_confidence=np.asarray(confidence,float).copy()
+        value.image_size=image_size
+        return value
+
+def undo_image_rotation(world,image,k):
+    """Undo np.rot90(k) in raw x/right,y/down,z/away camera coordinates."""
+    world=np.asarray(world,float).copy();image=np.asarray(image,float).copy();k%=4
+    x,y=world[:,0].copy(),world[:,1].copy();u,v=image[:,0].copy(),image[:,1].copy()
+    if k==1:world[:,0],world[:,1]=-y,x;image[:,0],image[:,1]=1-v,u
+    elif k==2:world[:,0],world[:,1]=-x,-y;image[:,0],image[:,1]=1-u,1-v
+    elif k==3:world[:,0],world[:,1]=y,-x;image[:,0],image[:,1]=v,1-u
+    return world,image
+
+def restore_region(world,image,k,region):
+    """World landmarks remain metric/root-relative; image points undo the crop.
+
+    Points extrapolated outside the actual crop remain unobserved even when
+    their restored coordinates fall inside the original full image.
+    """
+    world,image=undo_image_rotation(world,image,k)
+    outside=np.any((image<0)|(image>1),axis=1)
+    if region is not None:
+        x0,y0,x1,y1=region
+        image=image*np.array([x1-x0,y1-y0])+np.array([x0,y0])
+    outside|=np.any((image<0)|(image>1),axis=1)
+    return world,image,outside
+
 class VisionPose:
     def __init__(self,model_name="full"):
         if model_name not in ("lite","full"):raise ValueError("無效的影像精度選項。")
@@ -52,6 +84,7 @@ class VisionPose:
         for i,p in enumerate(image_points):
             if confidence[i]>=.65:
                 cv2.circle(bgr,(round(p.x*w),round(p.y*h)),3,(80,240,100),-1)
-        return world,confidence
+        return PoseObservation(world,confidence,
+            np.array([[p.x,p.y] for p in image_points]),(w,h))
 
     def close(self):self.detector.close()

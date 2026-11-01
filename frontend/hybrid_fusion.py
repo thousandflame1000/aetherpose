@@ -58,6 +58,15 @@ def head_orientation(world,confidence):
     x=x/nx;z=z/nz;y=np.cross(z,x)
     return np.column_stack([x,y,z]),quality
 
+def image_landmarks_to_smpl(points,confidence,image_size):
+    """Actual image-space bearings, with pixel aspect and upward Y preserved."""
+    p=np.asarray(points,float)
+    if p.shape!=(33,2) or not np.isfinite(p).all():raise ValueError('Expected finite 33 image landmarks')
+    width,height=image_size
+    if not np.isfinite([width,height]).all() or min(width,height)<=0:raise ValueError('Invalid camera image dimensions')
+    q,c=landmarks_to_smpl(np.column_stack((p[:,0]*width/height,p[:,1],np.zeros(33))),confidence)
+    return q[:,:2],c
+
 
 def heading_from_camera(points, confidence):
     if min(confidence[[1,2,12]]) < .65:
@@ -77,8 +86,13 @@ class RotationFusion:
         self.rest, self.parents = np.asarray(rest,float), np.asarray(parents,int)
         self.children = [[k for k in range(1,24) if self.parents[k]==j] for j in range(24)]
         self.foot_skin=None
+        self.body_skin=None
 
     def bind_foot_skin(self,fk):
+        all_bones=np.argsort(-fk.weights,axis=1)[:,:4]
+        all_weights=np.take_along_axis(fk.weights,all_bones,axis=1)
+        all_weights/=all_weights.sum(axis=1,keepdims=True)
+        self.body_skin=(all_bones,all_weights,fk.v_template[:,None,:]-self.rest[all_bones])
         selected=fk.weights[:,[7,8,10,11]].sum(axis=1)>.5
         weights=fk.weights[selected]
         bones=np.argsort(-weights,axis=1)[:,:4]
@@ -101,6 +115,16 @@ class RotationFusion:
         # avatar.js places its pelvis frame at Y=.97. Ground the skinned
         # sole, rather than an ankle/toe joint above the actual sole.
         return -.97-minimum
+
+    def body_floor_translation(self,rotations,positions):
+        """Display-only contact assumption; never an absolute camera height measurement."""
+        if self.body_skin is None:return -.97-float(np.min(positions[:,1]))
+        global_r=np.empty_like(rotations)
+        for j,p in enumerate(self.parents):global_r[j]=rotations[j] if p<0 else global_r[p]@rotations[j]
+        bones,weights,offsets=self.body_skin
+        points=np.einsum('nkij,nkj->nki',global_r[bones],offsets)+positions[bones]
+        minimum=np.min(np.sum(points*weights[:,:,None],axis=1)[:,1])
+        return -.97-float(minimum)
 
     def fit(self, previous, camera=None, sensors=None, prior=None, camera_axes=None):
         previous=np.asarray(previous,float)

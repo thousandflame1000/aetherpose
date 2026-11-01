@@ -52,6 +52,7 @@ class KinematicFusion:
   if profile not in self.PROFILES:raise ValueError('Unknown kinematic profile')
   self.profile=profile;self.CHAINS=self.PROFILES[profile]
   self.allow_twist=profile=='smpl_tpose';self.observed=set()
+  self.camera_basis=None
   self.fusion=fusion;self.parents=fusion.parents;self.fps=fps
   self.angles=np.linspace(0,np.deg2rad(145),291)
   self.hinges={(axis,sign):Rotation.from_rotvec(np.eye(3)[axis][None,:]*self.angles[:,None]*sign).as_matrix() for axis,sign in set((a,s) for _,_,_,a,s in self.CHAINS)}
@@ -98,21 +99,32 @@ class KinematicFusion:
   twist_axis/=max(np.linalg.norm(twist_axis),1e-9)
   q=quaternion(twist);tau=2*math.atan2(float(np.dot(q[:3],twist_axis)),q[3])
   origin=np.array([reference,tau]);value=origin.copy();weight=3*quality
+  prior_precision=getattr(self,'prior_precision',1.)
+  metric=getattr(self,'metric_bearing',False)
+  basis=self.camera_basis
+  if basis is not None:
+   target2=basis.T@target;target_length=np.linalg.norm(target2)
+   if target_length<1e-4 and not metric:return reference,twist
+   if not metric:target2/=target_length
   # Heavy-tailed image innovations: a confident monocular depth outlier must
   # not receive an unbounded quadratic pull against calibrated inertial data.
   scale2=float(np.sin(np.deg2rad(25))**2)
   def evaluate(x,derivatives=False):
    T=Rotation.from_rotvec(twist_axis*x[1]).as_matrix()
    v=rotation(axis,-sign*x[0])@source;w=T.T@v;ray=distal_orientation@w
-   residual=ray-target
+   if basis is None:residual=ray-target
+   else:
+    projected=basis.T@ray;projected_length=max(float(np.linalg.norm(projected)),1e-5)
+    bearing=projected if metric else projected/projected_length;residual=bearing-target2
    squared=float(np.dot(residual,residual))
-   cost=weight*scale2*math.log1p(squared/scale2)+float(np.sum((x-origin)**2))
+   cost=weight*scale2*math.log1p(squared/scale2)+prior_precision*float(np.sum((x-origin)**2))
    if not derivatives:return cost,T
    J=np.column_stack((-sign*distal_orientation@T.T@np.cross(np.eye(3)[axis],v),-distal_orientation@np.cross(twist_axis,w)))
+   if basis is not None:J=basis.T@J if metric else (np.eye(2)-np.outer(bearing,bearing))@basis.T@J/projected_length
    return cost,T,residual,J,weight/(1+squared/scale2)
   for _ in range(5):
    cost,T,residual,J,precision=evaluate(value,True)
-   step=np.linalg.solve(precision*J.T@J+np.eye(2),precision*J.T@residual+value-origin)
+   step=np.linalg.solve(precision*J.T@J+prior_precision*np.eye(2),precision*J.T@residual+prior_precision*(value-origin))
    if np.linalg.norm(step)<1e-5:break
    improved=False
    for scale in (1.,.5,.25):
@@ -121,8 +133,38 @@ class KinematicFusion:
    if not improved:break
   return float(value[0]),evaluate(value)[1]
 
- def fit(self,previous,camera,sensors,axes,prior=None,dt=None):
+ def fit(self,previous,camera,sensors,axes,prior=None,dt=None,camera_basis=None,camera_image=None):
   dt=1/self.fps if dt is None else dt
+  self.camera_basis=None
+  if camera_basis is not None:
+   camera_basis=np.asarray(camera_basis,float)
+   if camera_basis.shape!=(3,3) or not np.isfinite(camera_basis).all():raise ValueError('Invalid calibrated camera basis')
+   if not np.allclose(camera_basis.T@camera_basis,np.eye(3),atol=1e-4) or np.linalg.det(camera_basis)<.99:raise ValueError('Camera basis must be a proper rotation')
+   self.camera_basis=camera_basis[:,:2]
+  if camera_image is not None and self.camera_basis is None:raise ValueError('Image bearings require a calibrated camera basis')
+  if camera_image is not None:
+   iq,ic=(np.asarray(v,float) for v in camera_image)
+   if iq.shape!=(24,2) or ic.shape!=(24,) or not np.isfinite(iq).all() or not np.isfinite(ic).all() or np.any((ic<0)|(ic>1)):
+    raise ValueError('Invalid image bearings')
+   camera_image=(iq,ic)
+  self.camera_image=camera_image
+  # Scale is measured from image projections of independently oriented IMU
+  # segments, not from pose truth or camera distance. Retain lengths as well
+  # as bearings when multiple segments agree on a weak-perspective scale.
+  self.image_scale=None
+  if self.camera_basis is not None and camera_image is not None:
+   iq,ic=camera_image;scales=[]
+   for j,F in sensors.items():
+    for child in self.fusion.children[j]:
+     if child in (3,6,9,13,14) or min(ic[j],ic[child])<.8:continue
+     projected=self.camera_basis.T@(F@(self.fusion.rest[child]-self.fusion.rest[j]))
+     norm=np.linalg.norm(projected);observed=np.linalg.norm(iq[child]-iq[j])
+     if norm>.08 and observed>.015:scales.append(float(observed/norm))
+   if len(scales)>=2:
+    median=float(np.median(scales));agree=[s for s in scales if abs(s/median-1)<.3]
+    if len(agree)>=2:self.image_scale=float(np.median(agree))
+  model_global=None if prior is None else global_rotations(prior,self.parents)
+  root_inconsistent=prior is not None and 0 in sensors and Rotation.from_matrix(prior[0]@sensors[0].T).magnitude()>np.deg2rad(20)
   # A single index point does not observe palm rotation. Keep unmeasured
   # wrist orientation rather than inventing a full rotation from that ray.
   if camera is not None:
@@ -151,7 +193,20 @@ class KinematicFusion:
      R[j]=G[self.parents[j]].T@sensors[j]
      G=global_rotations(R,self.parents)
   for proximal,hinge,distal,axis,sign in self.CHAINS:
-   relative=(sensors[proximal].T@sensors[hinge]) if proximal in sensors and hinge in sensors else (prior[hinge] if prior is not None else R[hinge])
+   self.metric_bearing=False;self.prior_precision=1.
+   if model_global is not None and hinge in sensors:
+    innovation=Rotation.from_matrix(model_global[hinge]@sensors[hinge].T).magnitude()
+    self.prior_precision=max(.03,1/(1+(innovation/np.deg2rad(30))**2))
+   if hinge in sensors and prior is not None and (root_inconsistent or proximal in sensors):
+    parent=self.parents[proximal]
+    # Condition the proximal model hypothesis on the corrected measured root.
+    # A physics prior may have the right distal world orientation but the wrong
+    # root tilt, compensated by a spurious local knee/elbow rotation. Reusing
+    # that local hinge unchanged after replacing the root rotates the parent
+    # twice. Re-estimate its relative hinge against the actual distal IMU.
+    hypothesis=sensors[proximal] if proximal in sensors else (G[parent]@prior[proximal] if parent>=0 else prior[proximal])
+    relative=hypothesis.T@sensors[hinge]
+   else:relative=(sensors[proximal].T@sensors[hinge]) if proximal in sensors and hinge in sensors else (prior[hinge] if prior is not None else R[hinge])
    T=self.twist(relative,hinge,distal)
    old=np.clip(hinge_angle(previous[hinge]@self.twist(previous[hinge],hinge,distal).T,axis,sign),0,self.angles[-1])
    cap=np.deg2rad(160)*dt
@@ -159,7 +214,7 @@ class KinematicFusion:
     # Preserve the unobservable axial component of the model hypothesis.
     # Fit the observable hinge angle against a calibrated distal orientation
     # and a camera bone ray, rather than rebuilding twist from monocular depth.
-    reference=float(np.clip(hinge_angle(prior[hinge]@T.T,axis,sign),0,self.angles[-1]))
+    reference=float(np.clip(hinge_angle(relative@T.T,axis,sign),0,self.angles[-1]))
     desired=reference
     if q is not None and min(c[proximal],c[hinge])>=.8 and proximal not in sensors:
      source=self.fusion.rest[hinge]-self.fusion.rest[proximal]
@@ -169,21 +224,54 @@ class KinematicFusion:
      if lengths>1e-6:
       source=source/max(np.linalg.norm(source),1e-9);target=target/max(np.linalg.norm(target),1e-9)
       quality=float(min(c[proximal],c[hinge]))
+      if camera_image is not None:
+       image_q,image_c=camera_image
+       bearing=image_q[hinge]-image_q[proximal];image_length=float(np.linalg.norm(bearing))
+       length=np.linalg.norm(self.fusion.rest[hinge]-self.fusion.rest[proximal])
+       # An image segment longer than a physical bone invalidates the common
+       # weak-perspective scale (e.g. detector endpoint/anthropometry bias).
+       # Keep its bearing, with the original prior strength, in that case.
+       metric_valid=self.image_scale is not None and image_length<=1.15*self.image_scale*length
+       if metric_valid:
+        self.metric_bearing=True
+        # A knee's learned bend is not an actual proximal IMU measurement.
+        # With independently scaled image lengths, that missing DOF is
+        # observable even when the thigh is end-on; use a weak pose prior.
+        if hinge in (4,5):self.prior_precision*=.1
+        target=self.camera_basis@(bearing/max(self.image_scale*length,1e-9))
+       else:target=self.camera_basis@(bearing/max(image_length,1e-9))
+       quality*=min(float(image_c[proximal]),float(image_c[hinge]))
+       if not self.metric_bearing:quality*=min(1.,(image_length/.025)**2)
       # A distal ray provides an independent consistency check for image depth.
       if c[distal]>=.8:
        b=q[distal]-q[hinge];sb=self.fusion.rest[distal]-self.fusion.rest[hinge]
        predicted=sensors[hinge]@sb
+       if self.camera_basis is not None:
+        b=(camera_image[0][distal]-camera_image[0][hinge]) if camera_image is not None else self.camera_basis.T@b
+        predicted=self.camera_basis.T@predicted
        cosine=np.dot(b,predicted)/max(np.linalg.norm(b)*np.linalg.norm(predicted),1e-9)
        mismatch=math.acos(float(np.clip(cosine,-1,1)))
        quality*=max(0.,1-(mismatch/np.deg2rad(35))**2)
       else:quality*=.25
+      if self.camera_basis is not None and not self.metric_bearing:
+       expected=sensors[hinge]@T.T@rotation(axis,-sign*reference)@source
+       # Bearing direction is poorly observed for an end-on segment.
+       quality*=min(1.,(np.linalg.norm(self.camera_basis.T@expected)/.25)**2)
+       quality*=min(1.,(np.linalg.norm(self.camera_basis.T@target)/.25)**2)
       if hinge in (18,19) and quality>0:
        desired,T=self.camera_hinge(source,target,sensors[hinge],reference,T,hinge,distal,axis,sign,quality)
       else:
        F=sensors[hinge]@T.T
        rays=np.einsum('nij,j->ni',self.hinges[(axis,sign)].transpose(0,2,1),source)@F.T
        scale2=float(np.sin(np.deg2rad(25))**2)
-       cost=3*quality*scale2*np.log1p(np.sum((rays-target)**2,axis=1)/scale2)+(self.angles-reference)**2
+       if self.camera_basis is None:squared=np.sum((rays-target)**2,axis=1)
+       else:
+        projected=rays@self.camera_basis;norms=np.linalg.norm(projected,axis=1)
+        observed=self.camera_basis.T@target
+        if not self.metric_bearing:observed/=max(np.linalg.norm(observed),1e-9)
+        estimate=projected if self.metric_bearing else projected/np.maximum(norms[:,None],1e-5)
+        squared=np.sum((estimate-observed)**2,axis=1)
+       cost=3*quality*scale2*np.log1p(squared/scale2)+self.prior_precision*(self.angles-reference)**2
        desired=float(self.angles[np.argmin(cost)])
     angle=float(np.clip(desired,max(0,old-cap),min(self.angles[-1],old+cap)))
     H=rotation(axis,sign*angle)
@@ -263,4 +351,9 @@ class KinematicFusion:
    maximum=np.deg2rad(300)*dt
    R[j]=limited(R[j],previous[j],maximum)
    R[j]=self.bounded(R[j],j)
+  self.pre_measurement_projection=R.copy()
+  self.measurement_projection_diagnostics={}
+  if prior is not None:
+   from measured_projection import condition
+   R,self.measurement_projection_diagnostics=condition(R,sensors,self,reference=prior)
   return R
